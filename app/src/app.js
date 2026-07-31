@@ -25,6 +25,7 @@ async function load() {
 
 function render() {
   if (!view) return;
+  document.body.classList.toggle("pinned", showsTrayHint());
   renderHealth();
   renderFooter();
   if (panel === "runway") renderRunway();
@@ -95,6 +96,8 @@ function renderRunway() {
   const limits = view.snapshot.limits;
 
   if (!limits.length) {
+    const hint = trayHint();
+    if (hint) root.append(hint);
     const card = el("div", "card");
     card.append(
       el("div", "section-title", "No usage data yet"),
@@ -113,8 +116,38 @@ function renderRunway() {
     return;
   }
 
+  const hint = trayHint();
+  if (hint) root.append(hint);
   root.append(headlineCard(now), ...limits.map((l) => limitCard(l, now)));
   if (view.activity.learned) root.append(rhythmCard());
+}
+
+// Windows files every new notification-area icon into the hidden overflow
+// flyout, so a tray-only app looks like it never started. A tester couldn't
+// find it and relaunched until ten copies were running. Say where it is, once.
+function showsTrayHint() {
+  return view.platform === "windows" && !localStorage.getItem("trayHintDismissed");
+}
+
+function trayHint() {
+  if (!showsTrayHint()) return null;
+
+  const card = el("div", "card hint-card");
+  card.append(el("div", "section-title", "Runway lives in your system tray"));
+  card.append(
+    el("div", "muted",
+      "Windows hides new tray icons. Click the ^ arrow at the left of the " +
+      "taskbar clock, then drag Runway out onto the taskbar to keep it visible. " +
+      "Closing this window does not quit Runway — use Quit in the tray menu.")
+  );
+  const ok = el("button", "icon", "Got it");
+  ok.style.marginTop = "8px";
+  ok.addEventListener("click", () => {
+    localStorage.setItem("trayHintDismissed", "1");
+    render();
+  });
+  card.append(ok);
+  return card;
 }
 
 // The app bases pace, run-dry and allowance on this profile, so it shows you
