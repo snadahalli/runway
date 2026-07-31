@@ -112,7 +112,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          ls -la artifacts
+          # download-artifact keeps each upload's directory structure when the
+          # upload listed several path globs, so `artifacts/*` is a mix of files
+          # (the dmg) and directories (msi/, nsis/, appimage/, deb/). Passing a
+          # directory to `gh release create` fails with "is a directory", which
+          # is exactly how the first attempt died after all three builds had
+          # succeeded. Collect the actual files instead.
+          mapfile -t FILES < <(find artifacts -type f | sort)
+          printf 'uploading:\n'; printf '  %s\n' "${FILES[@]}"
+          if [ ${#FILES[@]} -eq 0 ]; then echo "no artifacts to publish"; exit 1; fi
           # 0.x and anything with a pre-release suffix are marked as such, so a
           # test build can't be mistaken for a finished one.
           case "$TAG" in
@@ -124,4 +132,4 @@ jobs:
             --title "Runway $TAG" \
             --notes-file .github/release-notes.md \
             $PRERELEASE \
-            artifacts/*
+            "${FILES[@]}"
