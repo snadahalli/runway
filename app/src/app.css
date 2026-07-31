@@ -210,6 +210,8 @@ main {
 
 .spark { display: block; width: 100%; height: 22px; margin-top: 6px; }
 
+.hint-card { background: rgba(224, 161, 46, 0.10); }
+
 /* Working rhythm --------------------------------------------------------- */
 
 .rhythm {

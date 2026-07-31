@@ -74,6 +74,19 @@ struct SeriesPoint {
 
 fn main() {
     tauri::Builder::default()
+        // Must be the first plugin registered. Without it, launching Runway
+        // again starts a second copy — and a tester who couldn't find the tray
+        // icon clicked the shortcut until she had ten running. That isn't
+        // merely untidy: each one runs its own engine, so ten of them poll a
+        // rate-limited endpoint every 180s between them, and they race each
+        // other's byte cursors in scan-state.json.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            log::info(
+                "single-instance",
+                "second launch — surfacing the running window",
+            );
+            reveal_popover(app);
+        }))
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             get_view,
@@ -116,6 +129,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ),
     );
 
+    // No settings file means this is the first launch.
+    let first_run = !Settings::path().exists();
     let settings = Settings::load();
     let show_hud_at_launch = settings.show_hud;
 
@@ -153,7 +168,26 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         show_window(app.handle(), HUD);
     }
 
+    // Windows puts every new notification-area icon in the hidden overflow
+    // flyout, so a tray-only app looks like it failed to launch. Show the
+    // popover once, on the first run, so there is proof it is running and
+    // somewhere to read the "pin the tray icon" hint.
+    if first_run {
+        reveal_popover(app.handle());
+    }
+
     Ok(())
+}
+
+/// Bring the popover up centred, for a first run or a second launch attempt —
+/// neither of which has a tray click position to anchor to.
+fn reveal_popover(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(POPOVER) else {
+        return;
+    };
+    window.center().or_warn("centre the popover");
+    window.show().or_warn("show the popover");
+    window.set_focus().or_warn("focus the popover");
 }
 
 // MARK: - Windows

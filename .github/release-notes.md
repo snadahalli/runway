@@ -29,6 +29,12 @@ no account.
 
 ## First run
 
+**Windows hides new tray icons.** After installing, click the **^** arrow to the
+left of the taskbar clock and drag Runway out onto the taskbar so it stays
+visible. Runway will show its window once on first launch so you know it
+started. Launching it again just brings that window back — it will not start a
+second copy.
+
 An icon appears in the menu bar (macOS) or the system tray (Windows, Linux).
 
 - **Left-click** — the popover: limits, ledger, alarms, settings

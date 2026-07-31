@@ -1,6 +1,6 @@
 [package]
 name = "runway-app"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.77"
 description = "Runway — burn allowance for Claude plan limits"
@@ -16,6 +16,7 @@ runway-core = { path = "../../core" }
 # App Store distribution, which Runway isn't doing anyway.
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
