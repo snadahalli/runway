@@ -1,0 +1,47 @@
+include:
+  - project.yml
+
+# Adds the Notification Centre widget. Requires a real signing team: a widget
+# extension must be sandboxed, and a sandboxed process can only reach the shared
+# snapshot through an App Group, which Apple validates against a provisioning
+# profile. The menu bar app itself needs none of this — it is not sandboxed and
+# writes to the group path directly.
+
+targets:
+  Runway:
+    entitlements:
+      path: Sources/App/Runway.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.application-groups:
+          - group.com.sn.runway
+    dependencies:
+      - target: RunwayWidget
+        embed: true
+        codeSign: true
+
+  RunwayWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/Widget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sn.runway.widget
+        SKIP_INSTALL: YES
+    info:
+      path: Sources/Widget/Info.plist
+      properties:
+        CFBundleName: RunwayWidget
+        CFBundleDisplayName: Runway
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Sources/Widget/RunwayWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.sn.runway

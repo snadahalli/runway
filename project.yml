@@ -1,0 +1,50 @@
+name: Runway
+
+# Base spec: the menu bar app on its own. No entitlements, so it builds and runs
+# ad-hoc signed with no Apple Developer account. `project-widget.yml` layers the
+# WidgetKit extension on top for anyone who has a signing team.
+
+options:
+  bundleIdPrefix: com.sn
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    PRODUCT_NAME: $(TARGET_NAME)
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_ALLOWED: YES
+    CODE_SIGNING_REQUIRED: YES
+    DEVELOPMENT_TEAM: ""
+    PROVISIONING_PROFILE_SPECIFIER: ""
+
+targets:
+  Runway:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sn.runway
+        COMBINE_HIDPI_IMAGES: YES
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleName: Runway
+        CFBundleDisplayName: Runway
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSSupportsAutomaticTermination: false
+        NSSupportsSuddenTermination: false
