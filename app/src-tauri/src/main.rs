@@ -18,7 +18,13 @@ mod tray_icon;
 use std::sync::Mutex;
 
 use crate::log::LogError;
-use runway_core::readout::{menu_bar_text, tooltip};
+use runway_core::readout::tooltip;
+// The readout is real text on a macOS status item and painted pixels
+// everywhere else, so only one of these is ever compiled in.
+#[cfg(target_os = "macos")]
+use runway_core::readout::menu_bar_text;
+#[cfg(not(target_os = "macos"))]
+use runway_core::readout::tray_icon_text;
 use runway_core::severity::Severity;
 use runway_core::{Alarm, EngineConfig, EngineHandle, RunwaySnapshot, Settings, SnapshotHealth};
 use serde::Serialize;
@@ -335,7 +341,10 @@ fn apply_snapshot(app: &AppHandle, snapshot: &RunwaySnapshot) {
         // callback can already have fired.
         .unwrap_or(runway_core::MenuBarStyle::PaceRatio);
 
+    #[cfg(target_os = "macos")]
     let text = menu_bar_text(snapshot, style, now);
+    #[cfg(not(target_os = "macos"))]
+    let icon_text = tray_icon_text(snapshot, style, now);
     let tip = tooltip(snapshot, now);
     let headline = snapshot.headline();
     let rgb = match headline.map(|l| Severity::of(l, now)) {
@@ -365,7 +374,9 @@ fn apply_snapshot(app: &AppHandle, snapshot: &RunwaySnapshot) {
             }
             #[cfg(not(target_os = "macos"))]
             {
-                let _ = tray.set_icon(Some(to_image(tray_icon::render(&text, rgb, percent, 32))));
+                let _ = tray.set_icon(Some(to_image(tray_icon::render(
+                    &icon_text, rgb, percent, 32,
+                ))));
             }
         }
         tray.set_tooltip(Some(&tip)).or_warn("tray tooltip");

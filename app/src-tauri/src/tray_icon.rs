@@ -62,18 +62,31 @@ pub fn render(text: &str, rgb: (u8, u8, u8), percent: f64, size: u32) -> Rgba {
     let size_us = size as usize;
     let mut bytes = vec![0u8; size_us * size_us * 4];
 
-    let glyphs: Vec<[u8; 5]> = text.chars().filter_map(glyph).collect();
+    let mut glyphs: Vec<[u8; 5]> = text.chars().filter_map(glyph).collect();
     let bar_h = (size / 8).max(2) as usize;
 
     if !glyphs.is_empty() {
-        // Largest integer scale where the whole string fits, leaving room for
-        // the bar and a pixel of padding either side.
         let text_area_h = size_us.saturating_sub(bar_h + 2);
-        let cells_w = glyphs.len() * (GLYPH_W + 1) - 1;
+        // Width of `n` glyphs at `s` pixels per cell: one gap between each pair,
+        // none trailing.
+        let width = |n: usize, s: usize| (n * (GLYPH_W + 1) - 1) * s;
+
+        // Largest integer scale where the whole string fits.
         let scale = (1..=8)
             .rev()
-            .find(|s| cells_w * s <= size_us.saturating_sub(2) && GLYPH_H * s <= text_area_h)
+            .find(|s| width(glyphs.len(), *s) <= size_us && GLYPH_H * s <= text_area_h)
             .unwrap_or(1);
+
+        // Even at 1:1 a long readout can overrun a 16px icon — "418K/h" needs
+        // 23. Drop trailing glyphs until it fits, so the result is a decided
+        // truncation ("418K") rather than whatever happens to fall off the edge.
+        // `put` clips silently, so without this the overflow is invisible here
+        // and only shows up on someone's Windows taskbar.
+        while glyphs.len() > 1 && width(glyphs.len(), scale) > size_us {
+            glyphs.pop();
+        }
+
+        let cells_w = glyphs.len() * (GLYPH_W + 1) - 1;
 
         let draw_w = cells_w * scale;
         let draw_h = GLYPH_H * scale;
@@ -155,6 +168,59 @@ fn put(bytes: &mut [u8], size: usize, x: usize, y: usize, rgb: (u8, u8, u8), alp
 mod tests {
     use super::*;
 
+    /// Write the icons out so a human can look at them:
+    ///
+    /// ```sh
+    /// cargo test -p runway-app -- --ignored dump_previews
+    /// ```
+    ///
+    /// Ignored because it's an inspection aid, not an assertion. It exists
+    /// because the hard question about this module — is the number *readable*
+    /// at the size Windows actually draws it — can't be answered by a test, and
+    /// waiting for someone with a Windows machine to send a screenshot is a
+    /// slow way to find out. Each preview is composited on the tray greys and
+    /// magnified with nearest-neighbour, so one image pixel is one icon pixel.
+    #[test]
+    #[ignore]
+    fn dump_previews() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tray-previews");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for (name, text) in [
+            ("pace", "2.3\u{d7}"),
+            ("allowance", "418K/h"),
+            ("percent", "42%"),
+        ] {
+            for size in [16u32, 32] {
+                let icon = render(text, (61, 173, 115), 62.0, size);
+                for (bg_name, bg) in [("dark", 40u8), ("light", 235u8)] {
+                    let path = dir.join(format!("{name}-{size}px-{bg_name}.ppm"));
+                    std::fs::write(&path, to_ppm(&icon, bg, 8)).unwrap();
+                }
+            }
+        }
+        eprintln!("wrote previews to {}", dir.display());
+    }
+
+    /// Composite over an opaque background and magnify, as a binary PPM — no
+    /// image crate needed for something only a human ever opens.
+    fn to_ppm(icon: &Rgba, background: u8, zoom: u32) -> Vec<u8> {
+        let (w, h) = (icon.width * zoom, icon.height * zoom);
+        let mut out = format!("P6\n{w} {h}\n255\n").into_bytes();
+        for y in 0..h {
+            for x in 0..w {
+                let i = (((y / zoom) * icon.width + (x / zoom)) * 4) as usize;
+                let alpha = icon.bytes[i + 3] as f32 / 255.0;
+                for channel in 0..3 {
+                    let fg = icon.bytes[i + channel] as f32;
+                    out.push((fg * alpha + background as f32 * (1.0 - alpha)) as u8);
+                }
+            }
+        }
+        out
+    }
+
     fn opaque_pixels(icon: &Rgba) -> usize {
         icon.bytes.chunks(4).filter(|p| p[3] == 255).count()
     }
@@ -176,6 +242,27 @@ mod tests {
             for c in text.chars() {
                 assert!(glyph(c).is_some(), "no glyph for {c:?} in {text:?}");
             }
+        }
+    }
+
+    /// A readout too long for the icon must be truncated deliberately, not
+    /// clipped by `put` falling off the right edge where nobody can see it.
+    #[test]
+    fn long_readouts_are_truncated_not_clipped() {
+        // "418K/h" needs 23px of the 16 available.
+        let long = render("418K/h", (255, 255, 255), 0.0, 16);
+        let short = render("418K", (255, 255, 255), 0.0, 16);
+        assert_eq!(
+            opaque_pixels(&long),
+            opaque_pixels(&short),
+            "the overflowing suffix should be dropped, leaving exactly '418K'"
+        );
+
+        // Nothing may be drawn in the rightmost column beyond the fill bar.
+        let bar_h = (16 / 8usize).max(2);
+        for y in 0..16 - bar_h {
+            let i = (y * 16 + 15) * 4 + 3;
+            assert_eq!(long.bytes[i], 0, "text reached the edge at row {y}");
         }
     }
 

@@ -41,6 +41,29 @@ pub fn menu_bar_text(snapshot: &RunwaySnapshot, style: MenuBarStyle, now: DateTi
     }
 }
 
+/// The readout compressed to fit a tray *icon*.
+///
+/// macOS status items carry real text and get [`menu_bar_text`]. Windows and
+/// Linux have to paint the number into the icon, and at 16 physical pixels only
+/// about four characters fit — so `418K/h` has to become `418K` and `2h 14m`
+/// has to become `2h`. Deciding that here, rather than letting the renderer
+/// clip whatever overflows, keeps the choice legible and testable. The full
+/// text is always in the tooltip.
+pub fn tray_icon_text(
+    snapshot: &RunwaySnapshot,
+    style: MenuBarStyle,
+    now: DateTime<Utc>,
+) -> String {
+    let full = menu_bar_text(snapshot, style, now);
+    match style {
+        // "418K/h" -> "418K"; the rate is implied by the tooltip.
+        MenuBarStyle::Allowance => full.split('/').next().unwrap_or(&full).to_string(),
+        // "2h 14m" -> "2h"; the leading unit is the one that matters at a glance.
+        MenuBarStyle::TimeLeft => full.split(' ').next().unwrap_or(&full).to_string(),
+        MenuBarStyle::PaceRatio | MenuBarStyle::Percent => full,
+    }
+}
+
 /// The longer text for the tray tooltip, where there's room to be explicit.
 pub fn tooltip(snapshot: &RunwaySnapshot, now: DateTime<Utc>) -> String {
     let Some(limit) = snapshot.headline() else {
