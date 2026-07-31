@@ -24,7 +24,18 @@ The frontend is static files under `app/src` — no npm, no bundler, no Node.
 install the CLI.
 
 CI runs `cargo test`, `cargo fmt --check`, `cargo clippy -D warnings` and a
-release build on all three platforms. Run those four locally before pushing.
+release build on all three platforms. **Run all four locally before pushing** —
+skipping clippy once is exactly how a lint that only fires on a constant
+expression reached CI.
+
+`main` is protected: no direct pushes, PR required, CI must be green, and a
+code-owner review is required. Work on a branch and open a PR:
+
+```sh
+git switch -c some-change
+# ...
+gh pr create --fill && gh pr checks --watch
+```
 
 ## Architecture
 

@@ -1,0 +1,9 @@
+# Every path is owned by the maintainer, so a review is automatically requested
+# on every pull request and — with "require review from Code Owners" on the
+# branch rule — no PR from anyone else can merge without it.
+#
+# Note this cannot make the maintainer approve their *own* pull requests.
+# GitHub does not permit self-approval under any configuration, so a solo PR
+# relies on the admin bypass instead.
+
+* @snadahalli
