@@ -72,3 +72,17 @@ Built and ran against a live Max 5x account. Confirmed:
   is deliberately not applied. Re-check when list prices move.
 - No tests. `TranscriptScanner.parse` and `Projection.calibrate` are the two
   worth covering first — both are pure functions over fixture data.
+
+## Known rough edges seen on first run
+
+- **Allowance in tokens stays `nil` for a while.** `Projection.calibrate` needs
+  3+ consecutive sample pairs with a Δpercent ≥ 0.5, which on a quiet account
+  can take hours. The percent-per-hour allowance shows immediately; the token
+  and dollar figures only appear once calibrated. Consider falling back to a
+  coarser estimate (total local tokens ÷ total percent moved this window) so the
+  headline isn't blank on day one.
+- **Weekly pace ratio is noisy early.** Extrapolating a 7-day slope from ~20
+  minutes of samples produced `4.3×` on first run. `Severity.of` damps it below
+  15% elapsed, but the number itself is still displayed. Worth widening the
+  minimum sample span for long windows specifically (`Projection.burnRate`
+  currently requires only 600s regardless of window length).
