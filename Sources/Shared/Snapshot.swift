@@ -100,17 +100,26 @@ struct RunwaySnapshot: Codable, Equatable {
     var monthlyValueUSD: Double?
 
     /// The limit that will bind first — what you actually care about.
+    ///
+    /// Ranked in two classes rather than one number, because seconds and
+    /// percentage points aren't comparable quantities. Scoring un-projected
+    /// limits as `1000 - percent` against seconds-to-exhaustion put every
+    /// un-projected limit ahead of anything running dry more than ~17 minutes
+    /// out, which is the opposite of the intent. So: a limit actually projected
+    /// to run out before its window resets binds first, soonest wins; otherwise
+    /// the fullest one does.
     var headline: LimitSnapshot? {
-        limits
+        // Keep this in step with `RunwaySnapshot::headline` in core/src/snapshot.rs —
+        // the widget and the cross-platform app must agree on what the headline is.
+        func urgency(_ l: LimitSnapshot) -> (Int, Double) {
+            guard let exhausts = l.exhaustsAt, let resets = l.resetsAt, exhausts < resets else {
+                return (1, -l.percent)
+            }
+            return (0, exhausts.timeIntervalSinceNow)
+        }
+        return limits
             .filter { $0.percent > 0 || $0.isActive }
-            .min { lhs, rhs in
-                // Sort by "how close to the wall", preferring an early run-dry.
-                func urgency(_ l: LimitSnapshot) -> Double {
-                    guard let exhausts = l.exhaustsAt else { return 1000 - l.percent }
-                    return exhausts.timeIntervalSinceNow
-                }
-                return urgency(lhs) < urgency(rhs)
-            } ?? limits.first
+            .min { lhs, rhs in urgency(lhs) < urgency(rhs) } ?? limits.first
     }
 
     var age: TimeInterval { Date().timeIntervalSince(generatedAt) }
@@ -131,25 +140,25 @@ struct RunwaySnapshot: Codable, Equatable {
 
 /// Writes the snapshot where both the app and the widget can reach it.
 ///
-/// App Groups are the supported channel, but they need a real signing team. When
-/// the group container isn't available (ad-hoc signed local build), we fall back
-/// to Application Support so the menu bar app still works standalone — the
-/// widget is the only thing that degrades.
+/// App Groups are the channel. They do *not* need a signing team — macOS honours
+/// the entitlement on an ad-hoc signature — but they do need the entitlement to
+/// have been applied, which `build.sh` does after the build. The fallbacks below
+/// keep the menu bar app working if it wasn't; only the widget degrades.
 enum SnapshotStore {
     static let appGroupID = "group.com.sn.runway"
     static let filename = "runway-snapshot.json"
 
     /// Three resolution steps, in order of preference:
     ///
-    /// 1. The real App Group container. Only a signed, entitled process gets
-    ///    this — in practice, the widget extension.
+    /// 1. The real App Group container. Any entitled process gets this,
+    ///    ad-hoc signature included — and a sandboxed one gets *only* this.
     /// 2. The group directory addressed by path. A non-sandboxed process (the
-    ///    menu bar app) can write here with no entitlement at all, so the app
-    ///    can always publish to where an entitled widget would look.
+    ///    menu bar app) can write here with no entitlement at all, so an
+    ///    unentitled build still publishes where an entitled widget would look.
     /// 3. Application Support, when even step 2 is unwritable.
     ///
-    /// The upshot: the app never needs a signing team, and adding one later
-    /// lights up the widget without changing where anything is stored.
+    /// The upshot: every build lands the snapshot in the same place, whether or
+    /// not the entitlement made it into the signature.
     static var containerURL: URL {
         if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             return group
