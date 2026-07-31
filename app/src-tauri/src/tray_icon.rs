@@ -47,6 +47,12 @@ fn glyph(c: char) -> Option<[u8; 5]> {
 const GLYPH_W: usize = 3;
 const GLYPH_H: usize = 5;
 
+/// Height of the fill bar along the bottom edge. A floor of 2 keeps it visible
+/// on a 16px icon, where an eighth would round down to nothing useful.
+fn bar_height(size: usize) -> usize {
+    (size / 8).max(2)
+}
+
 pub struct Rgba {
     pub width: u32,
     pub height: u32,
@@ -63,7 +69,7 @@ pub fn render(text: &str, rgb: (u8, u8, u8), percent: f64, size: u32) -> Rgba {
     let mut bytes = vec![0u8; size_us * size_us * 4];
 
     let mut glyphs: Vec<[u8; 5]> = text.chars().filter_map(glyph).collect();
-    let bar_h = (size / 8).max(2) as usize;
+    let bar_h = bar_height(size_us);
 
     if !glyphs.is_empty() {
         let text_area_h = size_us.saturating_sub(bar_h + 2);
@@ -259,7 +265,7 @@ mod tests {
         );
 
         // Nothing may be drawn in the rightmost column beyond the fill bar.
-        let bar_h = (16 / 8usize).max(2);
+        let bar_h = bar_height(16);
         for y in 0..16 - bar_h {
             let i = (y * 16 + 15) * 4 + 3;
             assert_eq!(long.bytes[i], 0, "text reached the edge at row {y}");
