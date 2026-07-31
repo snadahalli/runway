@@ -2,8 +2,34 @@
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+const appWindow = window.__TAURI__.window.getCurrentWindow();
 
 let view = null;
+
+// Dragging. The panel is frameless, so there's no title bar to grab — the whole
+// surface is the handle.
+//
+// `-webkit-app-region: drag` is the obvious way to do this and does nothing
+// here: it's a Chromium/Electron feature, and Tauri renders in WKWebView on
+// macOS and WebView2 on Windows. `startDragging()` hands the drag to the window
+// manager, which is what makes it feel native rather than chasing the cursor a
+// frame behind.
+document.addEventListener("mousedown", async (e) => {
+  if (e.button !== 0) return;
+  if (e.target.closest("button, input, select, a")) return;
+  await appWindow.startDragging();
+});
+
+// `startDragging` swallows the matching mouseup, so the move event is the only
+// reliable signal that a drag finished. It fires continuously, hence the debounce.
+let saveTimer = null;
+appWindow.onMoved(({ payload }) => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(
+    () => invoke("save_hud_position", { x: payload.x, y: payload.y }),
+    400
+  );
+});
 
 async function load() {
   view = await invoke("get_view");

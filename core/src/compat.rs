@@ -1,11 +1,10 @@
-//! Reading state files the Swift app left behind.
+//! Reading state files the original Swift build left behind.
 //!
-//! Calibration is the expensive thing to lose: `Projection::calibrate` needs
-//! several consecutive sample pairs before it can turn a percentage into tokens,
-//! which on a quiet account takes hours. So the Rust engine reads and writes the
-//! *same* `samples.json` and `scan-state.json` the Swift app used, and a user who
-//! switches over keeps their history instead of staring at a blank headline for
-//! an afternoon.
+//! Calibration is the expensive thing to lose: `calibrate` needs several
+//! consecutive sample pairs before it can turn a percentage into tokens, which
+//! on a quiet account takes hours. So this engine reads and writes the *same*
+//! `samples.json` and `scan-state.json` that build used, and anyone upgrading
+//! keeps their history instead of staring at a blank headline for an afternoon.
 //!
 //! The catch: those files were written by a plain `JSONEncoder`, whose default
 //! date strategy is `.deferredToDate` — a bare `Double` counting seconds from

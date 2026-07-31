@@ -1,7 +1,7 @@
 //! Compact formatting shared by every surface.
 //!
-//! Lives in the core rather than the UI so the tray label, the popover, the CLI
-//! and the macOS widget all round the same way — "418K" must not become "0.4M"
+//! Lives in the core rather than the UI so the tray label, the popover and the
+//! CLI all round the same way — "418K" must not become "0.4M"
 //! depending on which surface drew it.
 
 use chrono::{DateTime, Local, Utc};

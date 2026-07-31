@@ -1,10 +1,8 @@
 //! Runway's engine, with no UI and no platform assumptions.
 //!
-//! This is a port of the original Swift `Sources/Shared` + `AppModel`, kept
-//! deliberately close to it so the two can be diffed. Everything here runs the
-//! same on macOS, Windows and Linux; the places the platforms genuinely differ
-//! are isolated in [`paths`] (where files live) and [`credentials`] (keychain
-//! versus plain file).
+//! Everything here runs the same on macOS, Windows and Linux; the places the
+//! platforms genuinely differ are isolated in [`paths`] (where files live) and
+//! [`credentials`] (keychain versus plain file).
 
 pub mod activity;
 pub mod alarms;

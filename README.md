@@ -2,7 +2,6 @@
 
 A menu bar / system tray app for Claude plan limits that answers **"what can I still spend?"** instead of "how much have I used?"
 
-> **Two implementations right now.** `app/` is the cross-platform one (Rust + Tauri, runs on macOS, Windows and Linux) and is where the project is going. `Sources/` is the original macOS-only SwiftUI app, kept until the port reaches parity. Both drive the same engine logic and write the same `runway-snapshot.json`, so the macOS Notification Centre widget works with either. See [Which one do I build?](#which-one-do-i-build).
 
 Most usage monitors show you a percentage. A percentage tells you where you've been. Runway's headline number is a **burn allowance** — the tokens per hour you can sustain from right now until the window resets and land exactly at 100%. The menu bar shows a **pace ratio**: `1.0×` means perfectly paced, `2.4×` means you'll run dry less than halfway through the window.
 
@@ -18,7 +17,7 @@ Weekly · Fable runs dry around Thu 14:20 — 2d 6h before it resets.
 - **Pace ratio** — current burn ÷ sustainable burn, so you know whether to change what you're doing
 - **Predictive alarms** — "this limit will run dry Thursday afternoon", not just "you hit 80%"
 - **Value ledger** — what the subscription actually bought, priced against pay-as-you-go API rates, broken down per repo, per model, per session
-- **Notification Centre widget** that states the age of its own data on its face
+- **Desktop panel** — an always-on-top glance surface that states the age of its own data on its face
 - Everything local. No servers, no telemetry, no account.
 
 ## Why the numbers are different from other trackers
@@ -53,22 +52,6 @@ Runway never mints or refreshes tokens — Claude Code owns that lifecycle. Cred
 
 The API is polled at its documented 180-second floor, with `retry-after` honoured and exponential backoff to 15 minutes on failure. In between, Runway extrapolates each limit forward from the last API reading using local token volume and the calibrated tokens-per-percent — so the display keeps moving without spending requests. The header says `live` when the number came from the API and `estimated` when it's extrapolated; the estimate is clamped so it can never run backwards or overshoot 100%.
 
-## Which one do I build?
-
-| | `app/` — Rust + Tauri | `Sources/` — Swift |
-|---|---|---|
-| macOS | yes | yes |
-| Windows | yes | no |
-| Linux | yes | no |
-| Menu bar readout | text (macOS) / painted icon (Windows, Linux) | text |
-| Glanceable surface | always-on-top desktop panel | Notification Centre widget **and** the panel, via the Swift widget |
-| Build | `cargo run -p runway-app` | `./build.sh --install` |
-| Toolchain | Rust | Xcode + xcodegen |
-
-On Windows and Linux the Tauri app is the only option. On macOS, build the Swift app if you specifically want the Notification Centre widget; otherwise the Tauri app is the same product with a desktop panel instead.
-
-They share the snapshot file, so **you can run the Tauri app and keep the Swift widget** — the widget just renders whatever last wrote `runway-snapshot.json`. Don't run both *apps* at once, though: they'd fight over the same state files.
-
 ## Install
 
 Download the latest build from [Releases](../../releases). You need a Claude Pro / Max / Team plan signed in via Claude Code — run `claude` once if you never have, so Runway has credentials to read. The free plan doesn't expose usage data.
@@ -89,9 +72,9 @@ If you'd rather not click through a security warning, build from source — it's
 
 ## Requirements
 
-Common to both: a Claude Pro / Max / Team plan, signed in via Claude Code. The free plan doesn't expose usage data.
+A Claude Pro / Max / Team plan, signed in via Claude Code. The free plan doesn't expose usage data.
 
-**Cross-platform app** — [Rust](https://rustup.rs) 1.77+, and:
+[Rust](https://rustup.rs) 1.77+, and:
 
 - **Windows**: Visual Studio Build Tools with the C++ workload. WebView2 ships with Windows 11 and current Windows 10.
 - **macOS**: the Xcode command line tools (`xcode-select --install`). WebKit is already there.
@@ -99,9 +82,7 @@ Common to both: a Claude Pro / Max / Team plan, signed in via Claude Code. The f
 
 No npm, no bundler, no Node — the frontend is static files.
 
-**macOS Swift app** — macOS 14+, Xcode 16+ (26 tested), and [`xcodegen`](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). No Apple Developer account is required, for the app or the widget.
-
-## Build — cross-platform
+## Build
 
 ```sh
 cargo run -p runway-app
@@ -130,41 +111,9 @@ cargo run --bin runway-cli -- --json      # the exact snapshot the app publishes
 Two things, both forced by the platform rather than chosen:
 
 - **The tray can't show text.** `Shell_NotifyIcon` takes an icon and a tooltip, nothing else. So on Windows the readout is *painted into* the icon by a small bitmap font built for the size (`app/src-tauri/src/tray_icon.rs`), with the full detail in the tooltip. On macOS the status item carries real text, as before.
-- **There's no widget.** The Windows Widgets Board needs an MSIX-packaged Windows App SDK provider, which is a whole distribution story. The stand-in is the **desktop panel** — a frameless always-on-top window, on by default from the tray menu. Like the widget, it prints the age of its own data on its face.
+- **There's no widget surface.** The Windows Widgets Board needs an MSIX-packaged Windows App SDK provider, which is a whole distribution story. The glance surface is the **desktop panel** instead — a frameless always-on-top window you can drag anywhere, toggled from the tray menu, which prints the age of its own data on its face.
 
 Credentials are actually *simpler* on Windows: Claude Code stores them as plain JSON at `%USERPROFILE%\.claude\.credentials.json`, so there's no keychain prompt at all.
-
-## Build — macOS Swift app
-
-```sh
-./build.sh --install
-```
-
-That's the whole setup — clone, build, run. **No Apple Developer account, paid or free.** Both the menu bar app and the Notification Centre widget build ad-hoc signed.
-
-`--install` copies the app to `/Applications` and launches it. That matters for the widget: macOS only registers an app extension once the containing app has run from a location it scans, and launching straight out of `.build` doesn't count. Drop the flag to build in place.
-
-On first launch macOS asks whether Runway may read the `Claude Code-credentials` keychain item. Choose **Always Allow**. Ad-hoc signatures change on every rebuild, so the prompt reappears after each build — see *A stable identity* below if that gets old.
-
-### The widget, and why it needs no team
-
-A widget extension must be sandboxed, and a sandboxed process can only reach the shared snapshot through an App Group. The usual assumption is that App Groups require a provisioning profile, and therefore a signing team. They don't: **macOS honours `com.apple.security.application-groups` on an ad-hoc signature.** A sandboxed ad-hoc bundle gets its container at `~/Library/Group Containers/group.com.sn.runway` and can read and write there, while access to anything outside is still correctly refused.
-
-What genuinely blocks is Xcode's *build system*, which refuses to sign a target carrying any entitlement unless it can resolve a profile. `build.sh` sidesteps that: it asks `xcodebuild` for an unsigned bundle, then codesigns the widget and the app itself, inside out, with the entitlements applied directly.
-
-After `./build.sh --install`, add it from **right-click the desktop → Edit Widgets → Runway**.
-
-If you *do* have a signing team, `DEVELOPMENT_TEAM=ABCDE12345 ./build.sh` uses Xcode-managed signing instead. Nothing about the app changes; you get a stable identity out of it.
-
-### A stable identity
-
-Ad-hoc signatures are regenerated on every build, so macOS treats each build as a different program and re-asks for keychain access. A self-signed certificate fixes that without any Apple account:
-
-1. **Keychain Access → Certificate Assistant → Create a Certificate…**
-2. Name it `Runway Dev`, Identity Type *Self Signed Root*, Certificate Type **Code Signing**.
-3. Build with `SIGN_IDENTITY="Runway Dev" ./build.sh --install`.
-
-Now "Always Allow" sticks across rebuilds.
 
 ## Layout
 
@@ -181,24 +130,23 @@ core/                    the engine, no UI, no platform assumptions
     snapshot.rs            the published value + shared storage
     engine.rs              poll loop, scan loop, snapshot assembly
     alarms.rs              threshold / predictive / pace rules
-    compat.rs              reads state files the Swift app left behind
+    activity.rs            the learned working-hours profile
+    compat.rs              reads state written by the original Swift build
   src/bin/cli.rs         terminal front end
 
 app/                     the cross-platform shell
   src/                     static HTML/CSS/JS — popover and desktop panel
   src-tauri/               tray, windows, notifications
 
-Sources/                 the original macOS app
-  Shared/  App/  Widget/   Swift; Widget/ is still the only real widget
 ```
 
-Everything publishes exactly one value — `RunwaySnapshot` — and every surface renders from it. The macOS widget consumes the same struct off disk, which is why the Rust engine encodes dates the way `JSONEncoder.dateEncodingStrategy = .iso8601` does: whole seconds, `Z` suffix, no fractional part. Swift's decoder rejects anything else.
+Everything publishes exactly one value — `RunwaySnapshot` — and every surface renders from it. It's also written to disk as `runway-snapshot.json` on every update, which is a supported integration point: status bars, scripts and dashboards can read it without touching this codebase. Field names are camelCase and dates are whole-second RFC 3339.
 
 ## Accuracy notes
 
-- **Projections need history.** Pace, run-dry time and allowance appear after roughly three API polls (~10 minutes) in a given window. Before that the panel says it's calibrating rather than showing a number it can't stand behind.
+- **The token and dollar figures need history.** Pace appears immediately, because it's measured against your working-hours profile rather than fitted to a slope. But turning percentages into tokens needs several consecutive API readings that moved, which on a quiet account can take hours. Until then the panel says it's calibrating rather than showing a number it can't stand behind.
 - **The ledger is not a bill.** Subscription plans don't charge per token. The dollar figures answer "what would these tokens have cost on the pay-as-you-go API?", which is the only honest way to compare a month of Claude Code against the plan price.
-- **Rates are a snapshot.** `Pricing.swift` holds published list prices at time of writing and needs updating when they change. Sonnet 5 introductory pricing is not applied.
+- **Rates are a snapshot.** `core/src/pricing.rs` holds published list prices at time of writing and needs updating when they change. Sonnet 5 introductory pricing is not applied.
 - **The 5-hour window rolls.** Old requests age out of it, so its percentage can fall as well as rise. Calibration ignores negative deltas for exactly this reason.
 
 ## Releasing

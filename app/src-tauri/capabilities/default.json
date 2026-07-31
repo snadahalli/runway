@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the popover and the desktop panel are allowed to ask the backend for. Tauri v2 denies every core plugin command that isn't listed here — app commands declared in generate_handler! are always allowed, which is why the UI renders without any of this and dragging silently does nothing without it.",
+  "windows": ["popover", "hud"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging",
+    "notification:default"
+  ]
+}
