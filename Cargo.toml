@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["core", "app/src-tauri"]
+
+[profile.release]
+# This thing runs all day in a tray. Optimise for a small resident binary
+# rather than for benchmark throughput it will never need.
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

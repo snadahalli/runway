@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Runway</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body class="popover">
+  <div class="shell">
+    <header class="bar">
+      <nav id="tabs">
+        <button class="tab is-active" data-panel="runway"><span class="glyph">▤</span><span class="label">Runway</span></button>
+        <button class="tab" data-panel="ledger"><span class="glyph">≡</span><span class="label">Ledger</span></button>
+        <button class="tab" data-panel="alarms"><span class="glyph">◔</span><span class="label">Alarms</span></button>
+        <button class="tab" data-panel="settings"><span class="glyph">⚙</span><span class="label">Settings</span></button>
+      </nav>
+      <div class="health" id="health">
+        <i class="dot"></i><span id="health-text">…</span>
+      </div>
+    </header>
+
+    <main id="panels">
+      <section class="panel" data-panel="runway" id="panel-runway"></section>
+      <section class="panel" data-panel="ledger" hidden id="panel-ledger"></section>
+      <section class="panel" data-panel="alarms" hidden id="panel-alarms"></section>
+      <section class="panel" data-panel="settings" hidden id="panel-settings"></section>
+    </main>
+
+    <footer class="bar footer">
+      <span id="footer-text">…</span>
+      <span class="spacer"></span>
+      <button class="icon" id="refresh" title="Refresh now">⟳</button>
+      <button class="icon" id="quit" title="Quit Runway">⏻</button>
+    </footer>
+  </div>
+  <script src="format.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

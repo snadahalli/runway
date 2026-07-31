@@ -1,0 +1,21 @@
+[package]
+name = "runway-app"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Runway — burn allowance for Claude plan limits"
+default-run = "runway-app"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+runway-core = { path = "../../core" }
+# `macos-private-api` is what allows a transparent window on macOS, which is
+# what gives the frameless popover and HUD their rounded corners. It rules out
+# App Store distribution, which Runway isn't doing anyway.
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
