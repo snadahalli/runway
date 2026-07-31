@@ -283,9 +283,12 @@ body.hud { background: transparent; }
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* The whole panel is the drag handle; it has no title bar to grab. */
-  -webkit-app-region: drag;
+  /* The whole panel is the drag handle; it has no title bar to grab. The drag
+   * itself is done in hud.js via startDragging() — `-webkit-app-region` is a
+   * Chromium feature and does nothing in WKWebView or WebView2. */
+  cursor: grab;
 }
+.hud-shell:active { cursor: grabbing; }
 .hud-shell .big { font-size: 26px; margin: 2px 0 0; }
 .hud-row { display: flex; align-items: baseline; gap: 6px; font-size: 10px; color: var(--dim); }
 .hud-row .sep { opacity: 0.5; }

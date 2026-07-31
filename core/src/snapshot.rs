@@ -1,11 +1,14 @@
 //! The single value the engine publishes and every surface renders from.
 //!
-//! The JSON field names here are the *Swift* property names, and dates are
-//! encoded exactly the way `JSONEncoder.dateEncodingStrategy = .iso8601` encodes
-//! them — whole seconds, `Z` suffix, no fractional part. That is not cosmetic:
-//! the macOS WidgetKit extension is still Swift and decodes this file directly,
-//! and its decoder rejects fractional seconds. Change a name or a date format
-//! here and the widget silently shows placeholder content.
+//! `runway-snapshot.json` is written to disk on every update and is a supported
+//! integration point — status bars, scripts and dashboards can read it without
+//! going anywhere near this crate. So treat the field names and the date format
+//! as a public contract rather than an implementation detail.
+//!
+//! Dates are whole seconds with a `Z` suffix and no fractional part. That began
+//! as a constraint from a Swift `JSONDecoder`, whose `.iso8601` strategy rejects
+//! fractional seconds outright; the decoder is gone but the format is kept,
+//! because it costs nothing and strict parsers are common.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::paths;
 use crate::pricing::TokenTotals;
 
-/// Swift's `.iso8601` strategy, in both directions.
+/// Whole-second RFC 3339, in both directions.
 pub mod iso8601 {
     use chrono::{DateTime, SecondsFormat, Utc};
     use serde::{self, Deserialize, Deserializer, Serializer};
@@ -23,7 +26,7 @@ pub mod iso8601 {
     }
 
     /// Accepts fractional seconds on the way in even though we never write them,
-    /// so a file left behind by the Swift app (or any future writer) still loads.
+    /// so a file written by any other producer still loads.
     pub fn parse(raw: &str) -> Option<DateTime<Utc>> {
         DateTime::parse_from_rfc3339(raw)
             .ok()
@@ -90,7 +93,7 @@ impl LimitKind {
         }
     }
 
-    /// The Swift `rawValue`, used to build the history key.
+    /// The wire value, also used to build the sample-history key.
     pub fn raw(&self) -> &'static str {
         match self {
             LimitKind::Session => "session",
@@ -198,7 +201,7 @@ pub struct LedgerEntry {
     pub cost_usd: f64,
 }
 
-/// Ledger rollup for the popover and widget footer.
+/// Ledger rollup for the popover.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LedgerSummary {
     #[serde(rename = "windowLabel")]
@@ -281,12 +284,12 @@ impl RunwaySnapshot {
     /// The limit that will bind first — what you actually care about.
     ///
     /// Ranked in two classes rather than one number, because seconds and
-    /// percentage points aren't comparable quantities. The Swift original
-    /// scored un-projected limits as `1000 - percent` and projected ones as
-    /// seconds-to-exhaustion, which put every un-projected limit ahead of
-    /// anything running dry more than ~17 minutes out — the opposite of the
-    /// intent. So: a limit actually projected to run out before its window
-    /// resets binds first, soonest wins; otherwise the fullest one does.
+    /// percentage points aren't comparable quantities. Scoring un-projected
+    /// limits as `1000 - percent` against seconds-to-exhaustion — which is what
+    /// this did originally — puts every un-projected limit ahead of anything
+    /// running dry more than ~17 minutes out, the opposite of the intent. So: a
+    /// limit actually projected to run out before its window resets binds
+    /// first, soonest wins; otherwise the fullest one does.
     pub fn headline(&self) -> Option<&LimitSnapshot> {
         let now = Utc::now();
         let urgency = |l: &LimitSnapshot| -> (u8, f64) {

@@ -19,3 +19,10 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
+
+[features]
+# Right-click -> Inspect Element in the popover and the desktop panel. On by
+# default so `cargo run` is debuggable; drop it for a release bundle with
+# `--no-default-features`.
+default = ["devtools"]
+devtools = ["tauri/devtools"]

@@ -1,8 +1,7 @@
 //! User preferences, persisted as JSON next to the rest of Runway's state.
 //!
-//! The Swift app used `UserDefaults`, which has no cross-platform equivalent
-//! worth the abstraction, so this is a plain file. Every field keeps its Swift
-//! default so behaviour doesn't quietly change under anyone who switches.
+//! A plain JSON file rather than a per-platform preferences store, because
+//! there's no cross-platform equivalent worth the abstraction.
 
 use chrono::{Local, Timelike};
 use serde::{Deserialize, Serialize};
@@ -48,7 +47,7 @@ impl MenuBarStyle {
 }
 
 /// `default` at the container level means a settings file written by an older
-/// or newer build still loads — missing keys take the Swift defaults rather than
+/// or newer build still loads — missing keys take the defaults rather than
 /// throwing the whole file away.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -67,10 +66,17 @@ pub struct Settings {
     pub quiet_end_hour: u32,
 
     pub user_agent_override: String,
-    /// Keep the always-on-top desktop panel visible. This is the cross-platform
-    /// stand-in for the macOS Notification Centre widget, which has no Windows
-    /// equivalent short of MSIX-packaging a Widgets Board provider.
+    /// Keep the always-on-top desktop panel visible. This is the glanceable
+    /// surface on every platform: Windows has no equivalent of a Notification
+    /// Centre widget short of MSIX-packaging a Widgets Board provider.
     pub show_hud: bool,
+    /// Where the panel was last dragged to, in **physical** pixels.
+    ///
+    /// Physical rather than logical because that's what the window's move event
+    /// reports; converting through the scale factor on the way in and out would
+    /// drift the panel a little further every launch on a HiDPI display.
+    pub hud_x: Option<i32>,
+    pub hud_y: Option<i32>,
 }
 
 impl Default for Settings {
@@ -88,6 +94,8 @@ impl Default for Settings {
             quiet_end_hour: 8,
             user_agent_override: String::new(),
             show_hud: false,
+            hud_x: None,
+            hud_y: None,
         }
     }
 }

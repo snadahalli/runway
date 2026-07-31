@@ -40,27 +40,15 @@ pub fn support_dir() -> PathBuf {
     dir
 }
 
-/// The macOS App Group identifier. The WidgetKit extension is sandboxed and can
-/// only see this one directory, so on macOS the snapshot has to live here for
-/// the widget to survive.
-pub const APP_GROUP_ID: &str = "group.com.sn.runway";
-
 /// Directory the published snapshot is written to.
 ///
-/// On macOS this is the App Group container addressed by path, which a
-/// non-sandboxed process may write with no entitlement at all — exactly what the
-/// Swift app did. Elsewhere there is no such concept, so it's just our own state
-/// directory.
+/// This used to be the macOS App Group container, because a sandboxed WidgetKit
+/// extension could see nothing else. That extension is gone, so the snapshot
+/// lives with the rest of our state and macOS stops being a special case.
+///
+/// Moving it was free: the snapshot is rewritten every 15 seconds, and the
+/// state worth keeping — `samples.json`, `scan-state.json` — never lived there.
 pub fn snapshot_dir() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(home) = dirs::home_dir() {
-            let group = home.join("Library/Group Containers").join(APP_GROUP_ID);
-            if std::fs::create_dir_all(&group).is_ok() {
-                return group;
-            }
-        }
-    }
     support_dir()
 }
 
