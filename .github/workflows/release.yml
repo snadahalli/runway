@@ -96,6 +96,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Needed for the notes file — without a checkout this job has no repo.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -107,28 +110,15 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           ls -la artifacts
+          # 0.x and anything with a pre-release suffix are marked as such, so a
+          # test build can't be mistaken for a finished one.
+          case "$TAG" in
+            v0.*|*-*) PRERELEASE=--prerelease ;;
+            *)        PRERELEASE= ;;
+          esac
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --title "Runway $TAG" \
-            --generate-notes \
-            --notes-file - artifacts/* <<'NOTES'
-          ## Install
-
-          **macOS** — download the `.dmg`, drag Runway to Applications, then run this once:
-
-          ```sh
-          xattr -dr com.apple.quarantine /Applications/Runway.app
-          ```
-
-          macOS quarantines anything downloaded from the internet, and because
-          Runway isn't notarised (that needs a paid Apple Developer account) it
-          reports the app as "damaged". It isn't — that command clears the flag.
-
-          **Windows** — download the `-setup.exe`. SmartScreen will say "Windows
-          protected your PC" because the installer isn't code-signed; click
-          **More info → Run anyway**.
-
-          **Linux** — the `.AppImage` runs as-is (`chmod +x` first), or install the `.deb`.
-
-          Then run `claude` once if you never have, so Runway has credentials to read.
-          NOTES
+            --notes-file .github/release-notes.md \
+            $PRERELEASE \
+            artifacts/*

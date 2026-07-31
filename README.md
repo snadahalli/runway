@@ -46,7 +46,6 @@ Two details about the API that are easy to get wrong and are the usual reason mo
 1. OAuth tokens go on `Authorization: Bearer`, with `anthropic-beta: oauth-2025-04-20`. Not `x-api-key`.
 2. **`User-Agent: claude-code/<version>` is required.** Without a matching User-Agent the endpoint drops you into a far stricter rate-limit bucket and returns persistent 429s. Runway reads the version out of your own transcript logs rather than shelling out to `claude`.
 
-Runway never mints or refreshes tokens — Claude Code owns that lifecycle. Credentials are re-read from the keychain on every poll, so a refresh performed by the CLI is picked up automatically.
 
 ### Staying accurate without getting rate limited
 
@@ -69,6 +68,52 @@ Skip that and macOS says **"Runway is damaged and can't be opened"**. It isn't d
 **Linux** — `chmod +x` the `.AppImage` and run it, or install the `.deb`.
 
 If you'd rather not click through a security warning, build from source — it's one command and there's no warning to click.
+
+### First run
+
+An icon appears in the menu bar (macOS) or the system tray (Windows, Linux).
+
+- **Left-click** — the popover: limits, ledger, alarms, settings
+- **Right-click** — refresh, toggle the desktop panel, quit
+- **Desktop panel** — an always-on-top glance surface. Drag it anywhere; it remembers where you put it.
+
+The pace ratio is meaningful immediately. The **token and dollar figures take a few hours** to appear — turning an opaque percentage into tokens needs several consecutive API readings that actually moved. Until then those fields read `—` rather than a number Runway can't stand behind.
+
+### Credentials
+
+Runway never mints or refreshes tokens — Claude Code owns that lifecycle. It re-reads the credential store on every poll, so a refresh performed by the CLI is picked up on the next tick. Nothing is ever written back.
+
+| | Where Runway reads your token |
+|---|---|
+| macOS | login keychain, the `Claude Code-credentials` item. First run raises a keychain prompt — choose **Always Allow**. Falls back to the file below if the keychain is unavailable. |
+| Windows | `%USERPROFILE%\.claude\.credentials.json` |
+| Linux | `~/.claude/.credentials.json` |
+
+Usage history comes from `~/.claude/projects/**/*.jsonl` (`%USERPROFILE%\.claude\projects\` on Windows), read incrementally and never modified.
+
+**`CLAUDE_CONFIG_DIR`** is honoured. Set it and Runway looks for both the credentials file and the transcripts under that directory instead, matching Claude Code's own behaviour.
+
+### Where Runway keeps its own files
+
+| | |
+|---|---|
+| macOS | `~/Library/Application Support/Runway/` |
+| Windows | `%APPDATA%\Runway\` |
+| Linux | `~/.local/share/runway/` |
+
+- `settings.json` — preferences; editable by hand, reloaded on restart
+- `samples.json`, `scan-state.json` — sample history and the transcript read cursor. Delete these to reset calibration; you'll wait a few hours for it to rebuild.
+- `runway-snapshot.json` — the current snapshot, rewritten every 15 seconds. A supported integration point: read it from a status bar or script. camelCase fields, whole-second RFC 3339 dates.
+- `runway.log` — warnings and errors, capped at 512KB, opening with version, OS and paths
+
+### If something looks wrong
+
+Check `runway.log` first. Common cases:
+
+- **"No Claude Code credentials found"** — run `claude` and sign in.
+- **Keychain access denied (macOS)** — Runway was rebuilt and its ad-hoc signature changed, so macOS treats it as a different program. Answer the prompt again, or allow the `Claude Code-credentials` item in Keychain Access.
+- **Everything reads `—`** — normal for the first few hours; calibration hasn't converged. `runway-cli --profile` shows what it has learned so far.
+- **Rate limited** — Runway polls at the documented 180s floor and backs off to 15 minutes on failure. If you're seeing persistent 429s, something else is using the same token.
 
 ## Requirements
 
