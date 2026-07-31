@@ -1,0 +1,25 @@
+[package]
+name = "runway-core"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Platform-neutral engine for Runway: reads Claude Code's local logs and the OAuth usage endpoint, and derives burn allowance."
+
+[lib]
+name = "runway_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "runway-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+walkdir = "2"
+dirs = "5"
+ureq = { version = "2", features = ["json"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "2"

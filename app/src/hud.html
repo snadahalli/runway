@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Runway</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body class="hud">
+  <!-- The always-on-top desktop panel. This is what stands in for the macOS
+       Notification Centre widget on platforms that don't have one — Windows'
+       Widgets Board needs an MSIX-packaged provider, which is a different
+       distribution story entirely. Like the widget, it states the age of its
+       own data on its face: a number you can't trust is worse than a number
+       labelled "8m ago". -->
+  <div class="hud-shell">
+    <div class="eyebrow">Burn allowance</div>
+    <div class="big" id="value">—</div>
+    <div class="track" id="track"><div class="spent"></div></div>
+    <div class="hud-row">
+      <span id="label">Runway</span>
+      <span class="sep">·</span>
+      <span id="pct"></span>
+      <span class="spacer" style="flex:1"></span>
+      <i class="dot" id="dot"></i>
+      <span id="age"></span>
+    </div>
+  </div>
+  <script src="format.js"></script>
+  <script src="hud.js"></script>
+</body>
+</html>

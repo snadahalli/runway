@@ -1,0 +1,291 @@
+/* Runway's popover and HUD.
+ *
+ * Both windows are transparent and frameless, so the "window" is really this
+ * stylesheet. Colours track the OS light/dark setting; the severity palette is
+ * the same one core/src/severity.rs reports, so the tray icon and the UI can
+ * never disagree about what amber means. */
+
+:root {
+  --calm: #3dad73;
+  --watch: #e0a12e;
+  --tight: #d94d47;
+
+  --bg: rgba(246, 246, 248, 0.86);
+  --fg: #16181d;
+  --dim: rgba(22, 24, 29, 0.55);
+  --line: rgba(22, 24, 29, 0.1);
+  --fill: rgba(22, 24, 29, 0.05);
+  --track: rgba(22, 24, 29, 0.1);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: rgba(28, 30, 36, 0.88);
+    --fg: #eceef2;
+    --dim: rgba(236, 238, 242, 0.55);
+    --line: rgba(236, 238, 242, 0.12);
+    --fill: rgba(236, 238, 242, 0.06);
+    --track: rgba(236, 238, 242, 0.12);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font: 13px/1.4 -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color: var(--fg);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.popover .shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Bars ------------------------------------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  flex: 0 0 auto;
+}
+header.bar { border-bottom: 1px solid var(--line); }
+footer.bar {
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  color: var(--dim);
+  padding: 6px 10px;
+}
+.spacer { flex: 1; }
+
+nav { display: flex; gap: 4px; flex: 1; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: default;
+}
+.tab:hover { background: var(--fill); }
+.tab.is-active { background: var(--track); font-weight: 500; }
+/* Only the selected tab spells out its name, like the SwiftUI original. */
+.tab .label { display: none; }
+.tab.is-active .label { display: inline; }
+.glyph { font-size: 11px; opacity: 0.8; }
+
+.health { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--dim); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); display: inline-block; }
+.health.live .dot { background: var(--calm); }
+.health.estimated .dot { background: var(--calm); opacity: 0.55; }
+.health.backingOff .dot { background: var(--watch); }
+.health.error .dot { background: var(--tight); }
+
+button.icon {
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: default;
+}
+button.icon:hover { background: var(--fill); color: var(--fg); }
+
+/* Panels ----------------------------------------------------------------- */
+
+main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.panel { padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+.panel[hidden] { display: none; }
+
+.card {
+  padding: 11px;
+  border-radius: var(--radius);
+  background: var(--fill);
+}
+
+/* The one sentence the app exists to say. */
+.headline { padding: 12px; border-radius: var(--radius); }
+.headline.calm  { background: rgba(61, 173, 115, 0.08); }
+.headline.watch { background: rgba(224, 161, 46, 0.08); }
+.headline.tight { background: rgba(217, 77, 71, 0.08); }
+
+.eyebrow {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+.big {
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  margin: 4px 0 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.big .unit { font-size: 12px; font-weight: 400; color: var(--dim); letter-spacing: 0; }
+.sentence { font-size: 11px; color: var(--dim); }
+
+.calm  { color: var(--calm); }
+.watch { color: var(--watch); }
+.tight { color: var(--tight); }
+
+.limit-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.limit-head .name { font-weight: 500; }
+.limit-head .pct { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.badge.calm  { background: rgba(61, 173, 115, 0.18); }
+.badge.watch { background: rgba(224, 161, 46, 0.18); }
+.badge.tight { background: rgba(217, 77, 71, 0.18); }
+
+/* Window track: solid = spent, hatched = where the current pace lands you by
+ * reset. Hatching so a projection can never be mistaken for measured usage. */
+.track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--track);
+  overflow: hidden;
+  margin: 8px 0;
+}
+.track .projected {
+  position: absolute;
+  inset: 0 auto 0 0;
+  opacity: 0.3;
+  background-image: repeating-linear-gradient(
+    -60deg, currentColor 0 2px, transparent 2px 5px
+  );
+}
+.track .spent { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: currentColor; }
+.track .overflow {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  color: currentColor;
+}
+
+.stats { display: flex; }
+.stat { flex: 1; min-width: 0; }
+.stat .k { font-size: 10px; color: var(--dim); }
+.stat .v { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.spark { display: block; width: 100%; height: 22px; margin-top: 6px; }
+
+/* Working rhythm --------------------------------------------------------- */
+
+.rhythm {
+  display: grid;
+  grid-template-columns: 12px repeat(24, 1fr);
+  gap: 2px;
+  margin-top: 8px;
+}
+.rhythm-day { font-size: 8px; color: var(--dim); line-height: 8px; }
+.rhythm-cell {
+  height: 8px;
+  border-radius: 1.5px;
+  background: var(--calm);
+  display: block;
+}
+.rhythm-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  color: var(--dim);
+  padding-left: 14px;
+  margin-top: 3px;
+}
+
+/* Ledger ----------------------------------------------------------------- */
+
+.rows { display: flex; flex-direction: column; gap: 6px; }
+.row { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
+.row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .num { font-variant-numeric: tabular-nums; color: var(--dim); }
+.row .num.lead { color: var(--fg); font-weight: 500; }
+
+.section-title { font-size: 11px; font-weight: 600; margin-bottom: 6px; }
+.muted { color: var(--dim); font-size: 11px; }
+
+/* Alarms ----------------------------------------------------------------- */
+
+.alarm { padding: 9px 11px; border-radius: 8px; background: var(--fill); }
+.alarm .t { font-size: 11px; font-weight: 600; }
+.alarm .b { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.alarm .when { font-size: 9px; color: var(--dim); margin-top: 4px; }
+
+/* Settings --------------------------------------------------------------- */
+
+.field { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 5px 0; }
+.field label { flex: 1; }
+.field .hint { font-size: 10px; color: var(--dim); margin-top: -3px; padding-bottom: 4px; }
+select, input[type="number"], input[type="text"] {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--fill);
+  color: var(--fg);
+  min-width: 0;
+}
+input[type="number"] { width: 68px; }
+input[type="checkbox"] { accent-color: var(--calm); }
+
+/* HUD -------------------------------------------------------------------- */
+
+body.hud { background: transparent; }
+.hud-shell {
+  height: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bg);
+  backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* The whole panel is the drag handle; it has no title bar to grab. */
+  -webkit-app-region: drag;
+}
+.hud-shell .big { font-size: 26px; margin: 2px 0 0; }
+.hud-row { display: flex; align-items: baseline; gap: 6px; font-size: 10px; color: var(--dim); }
+.hud-row .sep { opacity: 0.5; }
