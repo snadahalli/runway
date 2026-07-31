@@ -1,8 +1,13 @@
 name: Runway
 
-# Base spec: the menu bar app on its own. No entitlements, so it builds and runs
-# ad-hoc signed with no Apple Developer account. `project-widget.yml` layers the
-# WidgetKit extension on top for anyone who has a signing team.
+# The menu bar app plus the Notification Centre widget. Neither target needs an
+# Apple Developer account: macOS honours `com.apple.security.application-groups`
+# on an ad-hoc signature, so the sandboxed widget reaches the shared snapshot
+# with no provisioning profile involved.
+#
+# Xcode's build system disagrees — it refuses to sign *any* entitlement without a
+# profile when signing is manual. So `build.sh` builds unsigned and codesigns the
+# bundle itself afterwards. See the header of that script.
 
 options:
   bundleIdPrefix: com.sn
@@ -21,8 +26,6 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
-    CODE_SIGNING_ALLOWED: YES
-    CODE_SIGNING_REQUIRED: YES
     DEVELOPMENT_TEAM: ""
     PROVISIONING_PROFILE_SPECIFIER: ""
 
@@ -37,6 +40,19 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sn.runway
         COMBINE_HIDPI_IMAGES: YES
+    # Not sandboxed — reading ~/.claude and the Claude Code keychain item is the
+    # entire point. The app group is declared so the app and the widget agree on
+    # one container path.
+    entitlements:
+      path: Sources/App/Runway.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.application-groups:
+          - group.com.sn.runway
+    dependencies:
+      - target: RunwayWidget
+        embed: true
+        codeSign: true
     info:
       path: Sources/App/Info.plist
       properties:
@@ -48,3 +64,31 @@ targets:
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSSupportsAutomaticTermination: false
         NSSupportsSuddenTermination: false
+
+  RunwayWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/Shared
+      - path: Sources/Widget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sn.runway.widget
+        SKIP_INSTALL: YES
+    info:
+      path: Sources/Widget/Info.plist
+      properties:
+        CFBundleName: RunwayWidget
+        CFBundleDisplayName: Runway
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    # A widget extension must be sandboxed, so the App Group is the only way it
+    # can see the app's snapshot.
+    entitlements:
+      path: Sources/Widget/RunwayWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.sn.runway
