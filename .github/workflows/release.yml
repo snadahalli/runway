@@ -1,0 +1,134 @@
+name: Release
+
+# Tag a version and this builds installers for all three platforms and attaches
+# them to a GitHub Release:
+#
+#     git tag v1.0.0 && git push origin v1.0.0
+#
+# Nothing here is code-signed. Signing macOS for distribution needs a paid Apple
+# Developer account for notarisation; Windows needs a purchased certificate.
+# Without them the artifacts still work, but the OS puts a scary screen in front
+# of them on first launch — see the install notes in README.md. If you ever buy
+# either, this is the one file that changes.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and publish (e.g. v1.0.0)"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal binary rather than two downloads, so nobody has to know
+          # whether their Mac is Intel or Apple Silicon.
+          - os: macos-latest
+            name: macOS (universal)
+            target: universal-apple-darwin
+            artifacts: |
+              target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          - os: windows-latest
+            name: Windows (x64)
+            target: x86_64-pc-windows-msvc
+            artifacts: |
+              target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+              target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          - os: ubuntu-22.04
+            name: Linux (x64)
+            target: x86_64-unknown-linux-gnu
+            artifacts: |
+              target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+              target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # A universal binary needs both halves available to lipo together.
+      - name: Add macOS architectures
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      # Prebuilt, because compiling the CLI from source costs several minutes
+      # on every runner.
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install the Tauri CLI
+        run: cargo binstall --no-confirm tauri-cli@^2
+
+      - name: Build installers
+        run: cargo tauri build --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runway-${{ matrix.target }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          ls -la artifacts
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "Runway $TAG" \
+            --generate-notes \
+            --notes-file - artifacts/* <<'NOTES'
+          ## Install
+
+          **macOS** — download the `.dmg`, drag Runway to Applications, then run this once:
+
+          ```sh
+          xattr -dr com.apple.quarantine /Applications/Runway.app
+          ```
+
+          macOS quarantines anything downloaded from the internet, and because
+          Runway isn't notarised (that needs a paid Apple Developer account) it
+          reports the app as "damaged". It isn't — that command clears the flag.
+
+          **Windows** — download the `-setup.exe`. SmartScreen will say "Windows
+          protected your PC" because the installer isn't code-signed; click
+          **More info → Run anyway**.
+
+          **Linux** — the `.AppImage` runs as-is (`chmod +x` first), or install the `.deb`.
+
+          Then run `claude` once if you never have, so Runway has credentials to read.
+          NOTES
