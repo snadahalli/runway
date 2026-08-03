@@ -39,19 +39,20 @@ jobs:
             rust_targets: aarch64-apple-darwin x86_64-apple-darwin
             artifacts: |
               target/universal-apple-darwin/release/bundle/dmg/*.dmg
+              target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz*
           - os: windows-latest
             name: Windows (x64)
             target: x86_64-pc-windows-msvc
             rust_targets: x86_64-pc-windows-msvc
             artifacts: |
               target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
-              target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+              target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe*
           - os: ubuntu-22.04
             name: Linux (x64)
             target: x86_64-unknown-linux-gnu
             rust_targets: x86_64-unknown-linux-gnu
             artifacts: |
-              target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+              target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage*
               target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
 
     steps:
@@ -84,7 +85,12 @@ jobs:
       - name: Install the Tauri CLI
         run: cargo binstall --no-confirm tauri-cli@^2
 
+      # Signs every updater artifact with the minisign key. Without this the
+      # plugin refuses the download, which is the entire point of it.
       - name: Build installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: cargo tauri build --target ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v4
@@ -133,3 +139,23 @@ jobs:
             --notes-file .github/release-notes.md \
             $PRERELEASE \
             "${FILES[@]}"
+
+      # The app polls a manifest, not the releases API: 0.x ships as a
+      # pre-release, and /releases/latest ignores those. A branch of its own
+      # keeps the two concerns apart.
+      - name: Publish the updater manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: python3 .github/updater-manifest.py
+
+      - name: Push it to the manifest branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan updater-manifest
+          git rm -rq --cached . || true
+          git add -f latest.json
+          git commit -qm "Manifest for ${{ github.event.inputs.tag || github.ref_name }}"
+          git push -qf origin updater-manifest

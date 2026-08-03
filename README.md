@@ -85,6 +85,26 @@ An icon appears in the menu bar (macOS) or the system tray (Windows, Linux).
 
 The pace ratio is meaningful immediately. The **token and dollar figures take a few hours** to appear — turning an opaque percentage into tokens needs several consecutive API readings that actually moved. Until then those fields read `—` rather than a number Runway can't stand behind.
 
+### Updating
+
+Runway checks for a new version an hour after launch and daily after that, and
+offers it in the popover — **Install and restart**. There's also *Check for
+updates…* in the tray menu. Nothing installs without you clicking.
+
+Every update is signed with a [minisign](https://jedisct1.github.io/minisign/)
+key whose public half is compiled into the app; the updater refuses anything
+that doesn't verify. That's Tauri's own signing, unrelated to Apple notarisation
+or an Authenticode certificate — which is why updates are cryptographically
+verified even though first install still trips Gatekeeper and SmartScreen.
+
+Updates on macOS skip the quarantine flag, so `xattr` is a first-install-only
+chore. On Windows the installer runs again, so SmartScreen may reappear. The
+`.deb` cannot self-update — use the `.AppImage` on Linux if you want updates,
+or `apt install` the new file.
+
+**Versions before 0.1.3 have no updater**, so upgrading to 0.1.3 is a manual
+download. After that it's self-service.
+
 ### Credentials
 
 Runway never mints or refreshes tokens — Claude Code owns that lifecycle. It re-reads the credential store on every poll, so a refresh performed by the CLI is picked up on the next tick. Nothing is ever written back.

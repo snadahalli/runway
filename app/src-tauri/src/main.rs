@@ -14,6 +14,7 @@
 
 mod log;
 mod tray_icon;
+mod updater;
 
 use std::sync::Mutex;
 
@@ -54,6 +55,10 @@ struct View {
     last_error: Option<String>,
     platform: &'static str,
     activity: ActivityView,
+    /// Version of a newer release, if one has been seen. `None` means current.
+    #[serde(rename = "updateAvailable")]
+    update_available: Option<String>,
+    version: &'static str,
 }
 
 /// The learned working-hours profile, for display. If the app is going to base
@@ -88,12 +93,15 @@ fn main() {
             reveal_popover(app);
         }))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_view,
             refresh,
             save_settings,
             save_hud_position,
             log_error,
+            check_for_update,
+            install_update,
             set_hud_visible,
             close_popover,
             quit
@@ -163,6 +171,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         engine,
         settings: Mutex::new(settings),
     });
+    app.manage(updater::AvailableUpdate::default());
+    updater::spawn_periodic_checks(app.handle());
 
     if show_hud_at_launch {
         show_window(app.handle(), HUD);
@@ -302,11 +312,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let hud = CheckMenuItemBuilder::with_id("hud", "Desktop panel")
         .checked(Settings::load().show_hud)
         .build(app)?;
+    let update = MenuItemBuilder::with_id("update", "Check for updates\u{2026}").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Runway").build(app)?;
     let menu = MenuBuilder::new(app)
         .items(&[&open, &refresh, &hud])
         .separator()
-        .items(&[&quit])
+        .items(&[&update, &quit])
         .build()?;
 
     let icon = to_image(tray_icon::placeholder((150, 150, 150), 32));
@@ -330,6 +341,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                     .and_then(|w| w.is_visible().ok())
                     .unwrap_or(false);
                 set_hud(app, !visible);
+            }
+            "update" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    updater::check(&app, true).await;
+                });
             }
             "quit" => {
                 if let Some(state) = app.try_state::<AppState>() {
@@ -440,8 +457,11 @@ fn set_hud(app: &AppHandle, visible: bool) {
 // MARK: - Commands
 
 #[tauri::command]
-fn get_view(state: tauri::State<'_, AppState>) -> View {
+fn get_view(app: AppHandle, state: tauri::State<'_, AppState>) -> View {
     let settings = state.settings.lock().unwrap().clone();
+    let update = app
+        .try_state::<updater::AvailableUpdate>()
+        .and_then(|s| s.0.lock().unwrap().clone());
     state.engine.with(|engine| {
         let snapshot = engine.snapshot.clone();
         let series = snapshot
@@ -469,6 +489,8 @@ fn get_view(state: tauri::State<'_, AppState>) -> View {
                 learned: engine.activity().learned,
                 weights: engine.activity().weights().to_vec(),
             },
+            update_available: update,
+            version: env!("CARGO_PKG_VERSION"),
         }
     })
 }
@@ -499,6 +521,17 @@ fn save_settings(app: AppHandle, state: tauri::State<'_, AppState>, mut settings
         .with(|engine| engine.config.settings = settings);
     let snapshot = state.engine.snapshot();
     apply_snapshot(&app, &snapshot);
+}
+
+#[tauri::command]
+async fn check_for_update(app: AppHandle) -> Option<String> {
+    updater::check(&app, false).await
+}
+
+/// Downloads, verifies and installs, then restarts into the new version.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    updater::install(&app).await
 }
 
 /// Uncaught frontend errors, forwarded so they don't die in an invisible

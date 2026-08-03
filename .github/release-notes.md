@@ -47,6 +47,15 @@ a few hours** — turning an opaque percentage into tokens requires several
 consecutive API readings that actually moved. Until then those fields read `—`
 rather than showing a number that can't be stood behind.
 
+## Updating
+
+From 0.1.3 onward Runway updates itself: it checks daily and offers the new
+version in the popover, or on demand from *Check for updates…* in the tray menu.
+Every update is signed and verified before it installs.
+
+Coming from an earlier version, this one is a manual download — there was no
+updater to do it for you.
+
 ## If something looks wrong
 
 `runway.log` is in the state directory, and opens with version, OS and paths:
