@@ -96,6 +96,8 @@ function renderRunway() {
   const limits = view.snapshot.limits;
 
   if (!limits.length) {
+    const update = updateCard();
+    if (update) root.append(update);
     const hint = trayHint();
     if (hint) root.append(hint);
     const card = el("div", "card");
@@ -116,10 +118,39 @@ function renderRunway() {
     return;
   }
 
+  const update = updateCard();
+  if (update) root.append(update);
   const hint = trayHint();
   if (hint) root.append(hint);
   root.append(headlineCard(now), ...limits.map((l) => limitCard(l, now)));
   if (view.activity.learned) root.append(rhythmCard());
+}
+
+// Offered, never forced. The install replaces the running binary and restarts,
+// which is not something to do to someone mid-sentence without asking.
+function updateCard() {
+  if (!view.updateAvailable) return null;
+
+  const card = el("div", "card hint-card");
+  card.append(el("div", "section-title", `Runway ${view.updateAvailable} is available`));
+  card.append(el("div", "muted", `You're on ${view.version}. Installing takes a few seconds and restarts Runway.`));
+
+  const install = el("button", "icon", "Install and restart");
+  install.style.marginTop = "8px";
+  install.addEventListener("click", async () => {
+    install.disabled = true;
+    install.textContent = "Installing\u2026";
+    try {
+      await invoke("install_update");
+    } catch (e) {
+      install.disabled = false;
+      install.textContent = "Install and restart";
+      card.append(el("div", "muted", `Update failed: ${e}`));
+      window.reportError?.("install_update", e);
+    }
+  });
+  card.append(install);
+  return card;
 }
 
 // Windows files every new notification-area icon into the hidden overflow
