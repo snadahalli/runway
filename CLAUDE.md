@@ -123,22 +123,36 @@ on screen and the HTTP call has a 20s timeout, so the poll is split
 the lock. Callbacks also run unlocked, which is what keeps the engine and
 settings mutexes from inverting against each other.
 
-## Verified working (2026-07-31)
+## Verified working (2026-08-04)
 
-Against a live Max 5x account on macOS: polls the endpoint, three limits parsed
-(`session`, `weekly_all`, `weekly_scoped`), calibration produces a token
-allowance, `live` → `estimated` flips correctly between polls, the learned
-profile matches the user's actual 09:00–19:00 Mon–Fri pattern, and the desktop
-panel drags and remembers its position.
+Against a live Max 5x account on macOS:
 
-CI is green on macOS, Windows and Linux — tests and a release build.
+- **The ledger is exact.** An independent recount of 34,239 raw JSONL lines
+  matched Runway to the token in all five categories, and to the cent on cost
+  ($590.28) once the recount used the real rate card. 887M of 898M billable
+  tokens were cache reads — priced at input rate that week would read ~$5,000
+  instead of $590.
+- **Auto-update works end to end**, exercised for real across 0.1.3 → 0.1.4 →
+  0.1.5: detect, download, verify signature, swap the bundle, restart.
+- The activity profile matches the user's actual 09:00–19:00 Mon–Fri pattern,
+  and the weekly allowance reconciles: 44.6 calendar hours to reset became 9.7
+  working hours, which is right for a Tuesday evening against a Thursday noon
+  reset.
+- Calibration banks ratios once the limit actually moves (2 within 4 minutes of
+  real use).
+- CI green on macOS, Windows and Linux.
 
 ## Not verified
 
-- **Nothing has been *run* on Windows or Linux**, only compiled. The tray icon's
-  painted number at 16px and at 125%/150% display scaling, the popover flipping
-  above a bottom taskbar, window transparency under WebView2, and notification
-  delivery are all unknowns.
+- **Linux has never been run**, only compiled.
+- **Windows has been run once**, by a tester. That found two real bugs (tray
+  icon hidden in the overflow flyout; ten instances launched). Still unverified
+  there: whether the number painted into the tray icon is legible at 125%/150%
+  display scaling, and whether window transparency and rounded corners survive
+  WebView2.
+- Nobody has confirmed a notification is ever *delivered* on any platform. The
+  rules have 16 tests; delivery is per-platform and untestable in CI, which is
+  what "Send a test alarm" in the tray menu exists for.
 
 ## Not done yet
 
@@ -151,6 +165,27 @@ CI is green on macOS, Windows and Linux — tests and a release build.
   and `core/src/severity.rs`, because they run on every countdown tick. The Rust
   side has the tests that pin the boundaries; keep them in step.
 
+## Open, decided but not built
+
+- **Calibration may converge too slowly on a quiet account.** `MIN_RATIOS` is 5,
+  and the API reports whole percentages, so a light day can produce no
+  qualifying moves at all — six consecutive polls sat at exactly 21.0%. Decided
+  to leave it and watch a normal working day. If it stalls, prefer *blending*
+  bootstrap toward the median as observations accumulate over simply lowering
+  the threshold, which would trade away outlier rejection.
+- **macOS re-prompts for keychain access after every auto-update**, because each
+  release is ad-hoc signed and macOS ties keychain ACLs to the signature. There
+  is no file fallback on macOS, so a missed prompt leaves the app blind at
+  `noCredentials` with a null message and nothing logged. Living with it for
+  now. The fix — a stable self-signed cert in CI — is an **assumption that was
+  never tested**; verify before building it.
+- **Credential failures are silent.** Set a message and log it.
+- **NSIS bundling flakes.** The Windows release downloads its toolchain on every
+  run and failed once with `io: Peer disconnected`. A re-run fixed it; a retry
+  around that step would save the round trip.
+- `required_status_checks.strict` makes every merge invalidate every open PR.
+  Turning it off was offered and not applied.
+
 ## Known rough edges
 
 - **Allowance in tokens stays null for a while.** `calibrate` needs 3+
@@ -159,11 +194,12 @@ CI is green on macOS, Windows and Linux — tests and a release build.
   dollar figures only appear once calibrated. Consider falling back to a coarser
   estimate (total local tokens ÷ total percent moved this window) so the headline
   isn't blank on day one.
-- **`tokens_per_percent` is jumpy between polls**, because it's a median over
-  very few pairs. It can move 2× with nothing else changing, which makes the
-  activity model look wrong when it isn't. Trust the pace ratio (which is
-  calibration-independent) more than the absolute token figures. Check the
-  activity side separately with `runway-cli --profile` and
+- **`tokens_per_percent` is a median over few samples.** Ratios now accumulate
+  across window rollovers, which removed the worst of the jitter, but with fewer
+  than `MIN_RATIOS` observations the figure is a single aggregate `bootstrap`
+  and is marked `provisional` — the UI shows `≈`. Trust the pace ratio, which is
+  calibration-independent, over the absolute token figures. Check the activity
+  side separately with `runway-cli --profile` and
   `remainingTokens ÷ allowanceTokensPerHour`.
 - `Severity::of` still damps pace below 15% *calendar* elapsed, which is more
   conservative than the activity model needs.
