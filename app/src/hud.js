@@ -91,8 +91,11 @@ function render() {
   const observed = snapshot.apiObservedAt ? new Date(snapshot.apiObservedAt) : null;
   const age = observed ? (now - observed) / 1000 : null;
   const ageLabel = document.getElementById("age");
+  // Counts in seconds rather than sitting on "just now" for half the poll
+  // interval. A label that never moves is indistinguishable from one that is
+  // stuck, which is the doubt this is supposed to remove.
   ageLabel.textContent =
-    age === null ? "no reading yet" : age < 90 ? "just now" : Fmt.duration(age) + " ago";
+    age === null ? "no reading yet" : age < 5 ? "just now" : Fmt.duration(age) + " ago";
   ageLabel.title =
     age === null
       ? "Runway hasn't reached the usage API yet"
