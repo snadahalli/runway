@@ -93,6 +93,7 @@ fn main() {
             reveal_popover(app);
         }))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_view,
@@ -100,6 +101,7 @@ fn main() {
             save_settings,
             save_hud_position,
             log_error,
+            open_link,
             check_for_update,
             install_update,
             set_hud_visible,
@@ -532,6 +534,33 @@ async fn check_for_update(app: AppHandle) -> Option<String> {
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     updater::install(&app).await
+}
+
+/// The only links the app will ever open, by name.
+///
+/// The webview asks for a *key*, not a URL, so there is no path by which a
+/// compromised or confused frontend can hand the OS an arbitrary address to
+/// launch. Adding a destination is a deliberate edit here.
+const LINKS: &[(&str, &str)] = &[
+    ("linkedin", "https://www.linkedin.com/in/snadahalli/"),
+    ("github", "https://github.com/snadahalli/runway"),
+    ("releases", "https://github.com/snadahalli/runway/releases"),
+    ("issues", "https://github.com/snadahalli/runway/issues"),
+];
+
+#[tauri::command]
+fn open_link(app: AppHandle, target: String) -> Result<(), String> {
+    let url = LINKS
+        .iter()
+        .find(|(name, _)| *name == target)
+        .map(|(_, url)| *url)
+        .ok_or_else(|| format!("unknown link: {target}"))?;
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url(url, None::<&str>)
+        .map_err(|e| {
+            log::warn("open_link", &e);
+            e.to_string()
+        })
 }
 
 /// Uncaught frontend errors, forwarded so they don't die in an invisible

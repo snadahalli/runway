@@ -64,8 +64,12 @@ function render() {
   value.className = "big " + sev;
   value.replaceChildren();
 
+  const rough = limit && limit.calibration === "provisional";
   if (limit && limit.allowanceTokensPerHour != null) {
-    value.append(text("span", Fmt.tokens(limit.allowanceTokensPerHour)), text("span", "/h", "unit"));
+    value.append(
+      text("span", (rough ? "\u2248" : "") + Fmt.tokens(limit.allowanceTokensPerHour)),
+      text("span", "/h", "unit")
+    );
   } else if (limit && limit.allowancePercentPerHour != null) {
     value.append(text("span", limit.allowancePercentPerHour.toFixed(1) + "%"), text("span", "/h", "unit"));
   } else {

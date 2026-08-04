@@ -32,6 +32,7 @@ function render() {
   if (panel === "ledger") renderLedger();
   if (panel === "alarms") renderAlarms();
   if (panel === "settings") renderSettings();
+  if (panel === "about") renderAbout();
 }
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -244,10 +245,16 @@ function headlineCard(now) {
   // per hour of the kind of time you actually spend, which is a much larger and
   // more actionable number than a calendar-hour average.
   const hour = view.activity.learned ? "working hour" : "hour";
+  const rough = limit && limit.calibration === "provisional";
   const big = el("div", `big ${sev}`);
   if (limit && limit.allowanceTokensPerHour != null) {
-    big.append(el("span", null, Fmt.tokens(limit.allowanceTokensPerHour)));
+    big.append(el("span", null, (rough ? "\u2248" : "") + Fmt.tokens(limit.allowanceTokensPerHour)));
     big.append(el("span", "unit", `tokens / ${hour}`));
+    if (rough) {
+      big.title =
+        "Provisional: estimated from what this window has moved so far, " +
+        "before there are enough readings to reject an outlier.";
+    }
   } else if (limit && limit.allowancePercentPerHour != null) {
     big.append(el("span", null, limit.allowancePercentPerHour.toFixed(1) + "%"));
     big.append(el("span", "unit", `/ ${hour}`));
@@ -292,8 +299,8 @@ function limitCard(limit, now) {
     stat("Pace", limit.paceRatio != null ? Fmt.ratio(limit.paceRatio) : "—",
       limit.paceRatio > 1 ? sev : null),
     stat("Resets", resets ? Fmt.duration((resets - now) / 1000) : "—"),
-    stat("Left", limit.remainingTokens != null ? Fmt.tokens(limit.remainingTokens) : "—"),
-    stat("Worth", limit.remainingValueUSD != null ? Fmt.usd(limit.remainingValueUSD) : "—")
+    stat("Left", tokensStat(limit)),
+    stat("Worth", worthStat(limit))
   );
   card.append(stats);
 
@@ -301,6 +308,20 @@ function limitCard(limit, now) {
     card.append(sparkline(view.series, sev));
   }
   return card;
+}
+
+// A provisional figure is marked, so a rough number is never mistaken for a
+// measured one. It is still shown — blank was the worse answer.
+function tokensStat(limit) {
+  if (limit.remainingTokens == null) return "\u2014";
+  const prefix = limit.calibration === "provisional" ? "\u2248" : "";
+  return prefix + Fmt.tokens(limit.remainingTokens);
+}
+
+function worthStat(limit) {
+  if (limit.remainingValueUSD == null) return "\u2014";
+  const prefix = limit.calibration === "provisional" ? "\u2248" : "";
+  return prefix + Fmt.usd(limit.remainingValueUSD);
 }
 
 function stat(key, value, tint) {
@@ -526,6 +547,75 @@ function renderSettings() {
   alarms.append(numberField("Quiet from", null, s.quietStartHour, 0, (v) => { s.quietStartHour = v; save(); }));
   alarms.append(numberField("Quiet until", null, s.quietEndHour, 0, (v) => { s.quietEndHour = v; save(); }));
   root.append(alarms);
+}
+
+// ---------------------------------------------------------------- about
+
+function renderAbout() {
+  const root = $("panel-about");
+  root.replaceChildren();
+
+  const card = el("div", "card about");
+  card.append(el("div", "about-name", "Runway"));
+  card.append(el("div", "muted", `Version ${view.version}`));
+  card.append(
+    el("div", "about-tagline",
+      "What can I still spend? \u2014 burn allowance for Claude plan limits.")
+  );
+  root.append(card);
+
+  // Update state lives here as well as the tray, because About is where people
+  // look for a version number and "am I current" is the next question.
+  const updates = el("div", "card");
+  updates.append(el("div", "section-title", "Updates"));
+  if (view.updateAvailable) {
+    updates.append(el("div", "muted", `Runway ${view.updateAvailable} is available.`));
+    const install = el("button", "icon", "Install and restart");
+    install.style.marginTop = "8px";
+    install.addEventListener("click", () => invoke("install_update"));
+    updates.append(install);
+  } else {
+    updates.append(el("div", "muted", "Checked daily. Every update is signed and verified before it installs."));
+    const check = el("button", "icon", "Check now");
+    check.style.marginTop = "8px";
+    check.addEventListener("click", async () => {
+      check.disabled = true;
+      check.textContent = "Checking\u2026";
+      const found = await invoke("check_for_update").catch(() => null);
+      check.disabled = false;
+      check.textContent = found ? `${found} available` : "Up to date";
+      if (found) render();
+    });
+    updates.append(check);
+  }
+  root.append(updates);
+
+  const made = el("div", "card");
+  made.append(el("div", "section-title", "Made by"));
+  made.append(el("div", null, "Sandeepa Nadahalli"));
+  const links = el("div", "about-links");
+  links.append(link("LinkedIn", "linkedin"), link("Source on GitHub", "github"),
+               link("Report an issue", "issues"));
+  made.append(links);
+  root.append(made);
+
+  const legal = el("div", "card");
+  legal.append(
+    el("div", "muted",
+      "Everything local. No servers, no telemetry, no account \u2014 Runway reads " +
+      "your own logs and talks to Anthropic's usage endpoint with the token Claude " +
+      "Code already stored.")
+  );
+  legal.append(el("div", "muted", "MIT licence."));
+  root.append(legal);
+}
+
+// The backend takes a name, never a URL, so the webview has no way to ask the
+// OS to open something arbitrary.
+function link(text, target) {
+  const a = el("button", "about-link", text);
+  a.addEventListener("click", () => invoke("open_link", { target }));
+  return a;
 }
 
 function field(labelText, hintText, control) {

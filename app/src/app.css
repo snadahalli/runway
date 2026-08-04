@@ -254,6 +254,23 @@ main {
 .alarm .b { font-size: 11px; color: var(--dim); margin-top: 2px; }
 .alarm .when { font-size: 9px; color: var(--dim); margin-top: 4px; }
 
+/* About ------------------------------------------------------------------ */
+
+.about-name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; }
+.about-tagline { font-size: 11px; color: var(--dim); margin-top: 6px; }
+.about-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.about-link {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: default;
+}
+.about-link:hover { background: var(--fill); }
+
 /* Settings --------------------------------------------------------------- */
 
 .field { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 5px 0; }
