@@ -79,12 +79,30 @@ function render() {
   document.getElementById("label").textContent = limit ? limit.label : (snapshot.message || "Not connected");
   document.getElementById("pct").textContent = limit ? Fmt.percent(limit.percent) : "";
 
-  // The honesty label: green while fresh, amber once a decision based on this
-  // number could be wrong.
-  const age = (now - new Date(snapshot.generatedAt)) / 1000;
-  document.getElementById("age").textContent = age < 90 ? "just now" : Fmt.duration(age) + " ago";
-  document.getElementById("dot").style.background =
-    age > 15 * 60 ? "var(--watch)" : "var(--calm)";
+  // The honesty label, and it has to measure the right thing. `generatedAt` is
+  // rewritten every 15s by the local log scan, so using it meant the panel said
+  // "just now" forever no matter how stale the underlying reading was — the
+  // exact false confidence this label exists to prevent. What ages is the
+  // authoritative API reading.
+  const observed = snapshot.apiObservedAt ? new Date(snapshot.apiObservedAt) : null;
+  const age = observed ? (now - observed) / 1000 : null;
+  const ageLabel = document.getElementById("age");
+  ageLabel.textContent =
+    age === null ? "no reading yet" : age < 90 ? "just now" : Fmt.duration(age) + " ago";
+  ageLabel.title =
+    age === null
+      ? "Runway hasn't reached the usage API yet"
+      : `Last API reading ${Fmt.duration(age)} ago · ${snapshot.health}`;
+
+  // Colour follows what the engine says about itself, not just the clock: an
+  // error or a rate-limit backoff matters even when the last reading was recent.
+  const dot = document.getElementById("dot");
+  dot.style.background =
+    snapshot.health === "error" || snapshot.health === "noCredentials"
+      ? "var(--tight)"
+      : snapshot.health === "backingOff" || age === null || age > 15 * 60
+        ? "var(--watch)"
+        : "var(--calm)";
 }
 
 function text(tag, content, className) {

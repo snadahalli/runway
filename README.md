@@ -34,6 +34,62 @@ With no history to learn from, the profile is uniform and every formula reduces 
 
 **Severity isn't just fullness.** A limit at 60% with eight hours left is fine; the same 60% with forty minutes left and a 3× pace is not. Severity is the worse of two independent readings — how full, and how fast — with the pace reading damped early in a window where a couple of heavy minutes would project absurd slopes.
 
+## How much to trust each number
+
+Not every figure here is equally solid. In descending order of confidence:
+
+| Number | Confidence | Why |
+|---|---|---|
+| **Percent used**, reset times | Exact | Straight from the API. Runway doesn't compute these. |
+| **Token counts** | Exact | Parsed per turn from your own logs, deduplicated by message and request id. |
+| **Pace ratio** | Good | `spent ÷ expected-by-now`. No curve fitting, and independent of calibration. Withheld until 2% of the window's work has elapsed, where the denominator is noise. |
+| **Run-dry time** | Fair | Only as good as the working-hours profile. A week off, or a change of routine, will skew it until the profile catches up. |
+| **Dollar figures** | Fair | Correct arithmetic over a **hand-maintained** rate card that goes stale silently when list prices move. |
+| **Token / dollar headroom** | **Weakest** | See below. |
+
+**The headroom figures are an estimate, not a measurement.** The API reports an
+opaque percentage, so to say "418K tokens left" Runway pairs consecutive
+readings, divides the local token volume in between by the change in percent,
+and takes the median. That median is over very few samples and **can move by 2×
+between polls with nothing else changing**.
+
+So: act on the percentages and the pace ratio. Treat the token and dollar
+headroom as an order of magnitude — useful for "am I about to run out", not for
+budgeting to three significant figures.
+
+`runway-cli --profile` prints the learned working-hours profile, and
+`remainingTokens ÷ allowanceTokensPerHour` gives the working-hours figure the
+allowance is derived from, if you want to sanity-check the two independently.
+
+### How the working-hours model works
+
+Runway buckets the last **28 days** of *fresh* tokens — excluding cache reads,
+since replaying a cache isn't new work — into 168 hour-of-week slots in local
+time. The slots are normalised so the week averages **1.0**, then blended **15%
+toward uniform**.
+
+That smoothing is load-bearing. Without it an hour you've never worked is a hard
+zero, expected-work stops advancing through it, and the first time you work an
+unusual hour the run-dry projection shoots to infinity.
+
+From that profile:
+
+- **Pace** — `used ÷ (work elapsed ÷ work in the whole window)`
+- **Run-dry** — walk the profile forward until accumulated work reaches
+  `done ÷ used`, so the answer lands in a working hour rather than at 3am Sunday
+- **Allowance** — `remaining ÷ expected working hours until reset`, where one
+  "working hour" is the mean intensity of the busiest slots holding 80% of your
+  activity
+
+That last definition is deliberately not the obvious closed form. `Σr²/Σr` was
+tried first and one unusually heavy afternoon — 21% of a fortnight in a single
+slot — dragged the reference from 4.3 to 8.6 and doubled the reported allowance.
+A mean over a *set* of slots doesn't move like that.
+
+**With too little history the profile stays uniform, and every formula above
+reduces exactly to the calendar-time version.** There's a test pinning that, so
+a new user loses nothing by having no history.
+
 ## Data sources
 
 | Source | Provides | Cost |
