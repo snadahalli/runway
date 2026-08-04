@@ -22,13 +22,13 @@ Weekly · Fable runs dry around Thu 14:20 — 2d 6h before it resets.
 
 ## Why the numbers are different from other trackers
 
-**Cache tokens are priced correctly.** In a long Claude Code session, cache reads are the overwhelming majority of tokens — on this machine, 366M of 375M billable tokens over a week. They cost **0.1×** input rate. Cache writes cost 1.25× (5-minute TTL) or 2× (1-hour TTL), and Runway reads the TTL split out of the logs rather than lumping them together. Pricing all of that at full input rate — which is the easy mistake — overstates value by roughly an order of magnitude.
+**Cache tokens are priced correctly.** In a long Claude Code session, cache reads are the overwhelming majority of tokens — measured on a real week's logs, roughly 97% of everything billable. They cost **0.1×** input rate. Cache writes cost 1.25× (5-minute TTL) or 2× (1-hour TTL), and Runway reads the TTL split out of the logs rather than lumping them together. Pricing all of that at full input rate — which is the easy mistake — overstates value by roughly an order of magnitude.
 
 **Percentages become tokens.** The API reports plan usage as an opaque percentage. Runway pairs consecutive API readings with the token volume recorded locally in between and takes the **median** ratio, giving a calibrated "tokens per percentage point". That's what turns `8% remaining` into `418K tokens` and `$31 of headroom`.
 
 **Windows are measured in working time, not calendar time.** `remaining ÷ hours until reset` assumes you burn tokens evenly through nights and weekends. Nobody does. Runway buckets your transcript history into an hour-of-week profile and measures a window by how much of *your* typical week's work has gone by — so pace is `spent ÷ expected-by-now`, run-dry lands in a working hour instead of at 3am on a Sunday, and the allowance is per working hour.
 
-The difference isn't cosmetic. On the machine this was developed on, 90% of tokens fell in 30 of the 168 hour-of-week slots. The flat model reported a **2.45× pace and "runs dry three days early"** when the honest figure was **0.28× and comfortably fine** — a false alarm, from fitting a slope to a working afternoon and extrapolating it across a calendar week. `runway-cli --profile` prints what it learned about you.
+The difference isn't cosmetic. On a developer working ordinary weekday hours, 90% of tokens landed in under a fifth of the week. The flat model reported a **2.45× pace and "runs dry three days early"** when the honest figure was **0.28× and comfortably fine** — a false alarm, from fitting a slope to a working afternoon and extrapolating it across a calendar week. `runway-cli --profile` prints what it learned about you.
 
 With no history to learn from, the profile is uniform and every formula reduces exactly to the calendar version.
 
@@ -82,8 +82,8 @@ From that profile:
   activity
 
 That last definition is deliberately not the obvious closed form. `Σr²/Σr` was
-tried first and one unusually heavy afternoon — 21% of a fortnight in a single
-slot — dragged the reference from 4.3 to 8.6 and doubled the reported allowance.
+tried first and one unusually heavy afternoon — a fifth of a fortnight's tokens
+in a single slot — roughly doubled the reported allowance.
 A mean over a *set* of slots doesn't move like that.
 
 **With too little history the profile stays uniform, and every formula above
