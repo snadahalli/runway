@@ -168,6 +168,10 @@ pub struct LimitSnapshot {
         default
     )]
     pub remaining_value_usd: Option<f64>,
+    /// How much to trust the two figures above. Absent when there is no
+    /// calibration at all and they are `None`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub calibration: Option<crate::projection::Quality>,
 }
 
 impl LimitSnapshot {
@@ -354,6 +358,7 @@ mod tests {
             allowance_tokens_per_hour: None,
             remaining_tokens: None,
             remaining_value_usd: None,
+            calibration: None,
         }
     }
 

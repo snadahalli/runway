@@ -131,6 +131,7 @@ mod tests {
             allowance_tokens_per_hour: None,
             remaining_tokens: None,
             remaining_value_usd: None,
+            calibration: None,
         }
     }
 

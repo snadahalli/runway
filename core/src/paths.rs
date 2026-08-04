@@ -60,6 +60,12 @@ pub fn history_path() -> PathBuf {
     support_dir().join("samples.json")
 }
 
+/// Accumulated calibration observations. Separate from `samples.json` so a
+/// corrupt or hand-edited history doesn't take the calibration with it.
+pub fn calibration_path() -> PathBuf {
+    support_dir().join("calibration.json")
+}
+
 pub fn scan_state_path() -> PathBuf {
     support_dir().join("scan-state.json")
 }
