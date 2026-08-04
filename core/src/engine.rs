@@ -22,7 +22,7 @@ use crate::alarms::{Alarm, AlarmEngine};
 use crate::credentials;
 use crate::paths;
 use crate::pricing;
-use crate::projection::{self, SampleHistory, UsageSample};
+use crate::projection::{self, Calibrator, SampleHistory, UsageSample};
 use crate::settings::Settings;
 use crate::snapshot::{
     LedgerEntry, LedgerSummary, LimitKind, LimitSnapshot, RunwaySnapshot, SnapshotHealth,
@@ -101,6 +101,9 @@ pub struct Engine {
 
     scanner: TranscriptScanner,
     history: SampleHistory,
+    /// Accumulated tokens-per-percent observations, kept across window
+    /// rollovers so a 5-hour reset doesn't discard the estimate.
+    calibrator: Calibrator,
     alarms: AlarmEngine,
     /// When you actually work, relearned on every rebuild from the same records
     /// the ledger uses. Uniform until there's enough history to say anything.
@@ -127,6 +130,7 @@ impl Engine {
             next_poll_at: None,
             scanner: TranscriptScanner::with_defaults(),
             history: SampleHistory::default(),
+            calibrator: Calibrator::default(),
             alarms: AlarmEngine::new(),
             activity: ActivityProfile::uniform(),
             consecutive_failures: 0,
@@ -434,8 +438,10 @@ impl Engine {
                 if let (Some(anchor_date), Some(anchor)) =
                     (self.anchor_date, self.anchor_percents.get(&key).copied())
                 {
-                    if let Some(calibration) =
-                        projection::calibrate(&window_samples, &window_records)
+                    if let Some(calibration) = self
+                        .calibrator
+                        .calibration(&key)
+                        .or_else(|| projection::bootstrap(&window_samples, &window_records))
                     {
                         let since = transcript::since(&records, anchor_date);
                         let extra = transcript::total_tokens(&since).fresh() as f64
@@ -454,6 +460,7 @@ impl Engine {
                 &window_samples,
                 &window_records,
                 &activity,
+                self.calibrator.calibration(&key),
                 now,
             ));
         }
@@ -545,6 +552,9 @@ impl Engine {
     fn save_history(&self) {
         if let Ok(bytes) = serde_json::to_vec(&self.history) {
             let _ = paths::write_atomic(&paths::history_path(), &bytes);
+        }
+        if let Ok(bytes) = serde_json::to_vec(&self.calibrator) {
+            let _ = paths::write_atomic(&paths::calibration_path(), &bytes);
         }
     }
 }

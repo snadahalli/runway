@@ -78,89 +78,138 @@ impl SampleHistory {
     }
 }
 
+/// How many tokens (and dollars) one percentage point of a limit represents.
 pub struct Calibration {
     pub tokens_per_percent: f64,
     pub dollars_per_percent: f64,
+    pub quality: Quality,
 }
 
-/// Least-squares slope in percentage points per **calendar** hour.
-///
-/// No longer drives pace or run-dry — those are activity-weighted now, see
-/// [`snapshot`]. Kept because "how fast is this moving right now" is still a
-/// real question, and the sparkline's slope should have a number attached.
-pub fn burn_rate(samples: &[UsageSample]) -> Option<f64> {
-    if samples.len() < 3 {
-        return None;
-    }
-    let first = samples.first()?;
-    let last = samples.last()?;
-    let span = (last.date - first.date).num_milliseconds() as f64 / 1000.0;
-    if span < 600.0 {
-        return None; // < 10 minutes of history says nothing
-    }
-
-    let origin_hours = first.date.timestamp_millis() as f64 / 3.6e6;
-    let (mut sum_x, mut sum_y, mut sum_xy, mut sum_xx) = (0.0, 0.0, 0.0, 0.0);
-    for sample in samples {
-        let x = sample.date.timestamp_millis() as f64 / 3.6e6 - origin_hours;
-        let y = sample.percent;
-        sum_x += x;
-        sum_y += y;
-        sum_xy += x * y;
-        sum_xx += x * x;
-    }
-    let n = samples.len() as f64;
-    let denominator = n * sum_xx - sum_x * sum_x;
-    if denominator.abs() <= 1e-9 {
-        return None;
-    }
-    let slope = (n * sum_xy - sum_x * sum_y) / denominator;
-    Some(slope.max(0.0))
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Quality {
+    /// A single aggregate ratio over whatever this window has moved so far.
+    /// Available within minutes and worth roughly its order of magnitude.
+    Provisional,
+    /// Median of enough independent observations to reject outliers.
+    Calibrated,
 }
 
-/// How many tokens (and dollars) one percentage point of a limit represents.
+/// One observation: local token volume against the percentage points it moved.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Ratio {
+    #[serde(with = "crate::compat")]
+    pub at: DateTime<Utc>,
+    pub tokens: f64,
+    pub dollars: f64,
+}
+
+/// Accumulated calibration observations, per limit.
 ///
-/// Derived by pairing consecutive API observations with the local token volume
-/// recorded in between, then taking the median ratio — median rather than mean
-/// because a single mis-aligned pair would otherwise dominate.
-pub fn calibrate(samples: &[UsageSample], records: &[UsageRecord]) -> Option<Calibration> {
-    if samples.len() < 2 {
-        return None;
-    }
+/// These used to be recomputed from the live window on every rebuild, which had
+/// two consequences worth fixing: a 5-hour window rollover threw the estimate
+/// away and started again from three samples, and a median over three samples
+/// moved by 2x between polls with nothing else changing. Ratios are now recorded
+/// once as they are observed and retained across windows, so the median is over
+/// a couple of dozen observations and stops lurching.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Calibrator {
+    #[serde(default)]
+    pub ratios: HashMap<String, Vec<Ratio>>,
+}
 
-    let mut token_ratios: Vec<f64> = Vec::new();
-    let mut dollar_ratios: Vec<f64> = Vec::new();
+/// Enough observations to trust the median to reject an outlier.
+pub const MIN_RATIOS: usize = 5;
+/// Beyond this the oldest are dropped; a limit's token value does drift as
+/// pricing and model mix change, so this is a moving picture, not a total.
+pub const MAX_RATIOS: usize = 32;
+pub const RATIO_RETENTION_DAYS: i64 = 21;
+/// Below this a percentage change is mostly rounding, and dividing by it
+/// produces a wild ratio.
+const MIN_DELTA: f64 = 0.5;
 
-    for pair in samples.windows(2) {
-        let (previous, current) = (&pair[0], &pair[1]);
+impl Calibrator {
+    /// Record what happened between two consecutive readings of one limit.
+    pub fn observe(
+        &mut self,
+        key: &str,
+        previous: &UsageSample,
+        current: &UsageSample,
+        records: &[UsageRecord],
+    ) {
         let delta = current.percent - previous.percent;
-        // Ignore noise and roll-offs: the 5-hour window's percentage falls as
-        // old requests age out, and a negative delta would invert the ratio.
-        if delta < 0.5 {
-            continue;
+        // The 5-hour window's percentage falls as old requests age out, and a
+        // negative delta would invert the ratio.
+        if delta < MIN_DELTA {
+            return;
         }
-
         let in_window = transcript::within(records, previous.date, current.date);
         if in_window.is_empty() {
-            continue;
+            return;
         }
-
         let tokens = transcript::total_tokens(&in_window).fresh() as f64;
-        let dollars = transcript::total_cost(&in_window);
         if tokens <= 0.0 {
-            continue;
+            return;
         }
 
-        token_ratios.push(tokens / delta);
-        dollar_ratios.push(dollars / delta);
+        let list = self.ratios.entry(key.to_string()).or_default();
+        list.push(Ratio {
+            at: current.date,
+            tokens: tokens / delta,
+            dollars: transcript::total_cost(&in_window) / delta,
+        });
+
+        let cutoff = Utc::now() - Duration::days(RATIO_RETENTION_DAYS);
+        list.retain(|r| r.at >= cutoff);
+        if list.len() > MAX_RATIOS {
+            let excess = list.len() - MAX_RATIOS;
+            list.drain(0..excess);
+        }
     }
 
-    if token_ratios.len() < 3 {
+    /// The precise figure, or `None` until there are enough observations.
+    pub fn calibration(&self, key: &str) -> Option<Calibration> {
+        let list = self.ratios.get(key)?;
+        if list.len() < MIN_RATIOS {
+            return None;
+        }
+        Some(Calibration {
+            tokens_per_percent: median(&list.iter().map(|r| r.tokens).collect::<Vec<_>>()),
+            dollars_per_percent: median(&list.iter().map(|r| r.dollars).collect::<Vec<_>>()),
+            quality: Quality::Calibrated,
+        })
+    }
+}
+
+/// A coarse figure from whatever the current window has already moved.
+///
+/// One aggregate ratio rather than a median of several, so it needs no minimum
+/// number of observations and appears within minutes instead of hours. It has
+/// no outlier rejection and will be off — but a number that is roughly right and
+/// labelled provisional beats an empty field, which is what this replaces.
+pub fn bootstrap(samples: &[UsageSample], records: &[UsageRecord]) -> Option<Calibration> {
+    let mut tokens = 0.0;
+    let mut dollars = 0.0;
+    let mut moved = 0.0;
+
+    for pair in samples.windows(2) {
+        let delta = pair[1].percent - pair[0].percent;
+        if delta <= 0.0 {
+            continue;
+        }
+        let in_window = transcript::within(records, pair[0].date, pair[1].date);
+        tokens += transcript::total_tokens(&in_window).fresh() as f64;
+        dollars += transcript::total_cost(&in_window);
+        moved += delta;
+    }
+
+    if moved < MIN_DELTA || tokens <= 0.0 {
         return None;
     }
     Some(Calibration {
-        tokens_per_percent: median(&token_ratios),
-        dollars_per_percent: median(&dollar_ratios),
+        tokens_per_percent: tokens / moved,
+        dollars_per_percent: dollars / moved,
+        quality: Quality::Provisional,
     })
 }
 
@@ -197,6 +246,7 @@ pub fn snapshot(
     history: &[UsageSample],
     records: &[UsageRecord],
     profile: &ActivityProfile,
+    calibration: Option<Calibration>,
     now: DateTime<Utc>,
 ) -> LimitSnapshot {
     let mut snapshot = LimitSnapshot {
@@ -211,6 +261,7 @@ pub fn snapshot(
         allowance_tokens_per_hour: None,
         remaining_tokens: None,
         remaining_value_usd: None,
+        calibration: None,
     };
 
     let remaining_percent = (100.0 - percent).max(0.0);
@@ -260,12 +311,15 @@ pub fn snapshot(
         }
     }
 
-    if let Some(calibration) = calibrate(history, records) {
+    // The precise figure if there are enough observations, otherwise whatever
+    // this window has already shown us — flagged, so the UI can say so.
+    if let Some(calibration) = calibration.or_else(|| bootstrap(history, records)) {
         snapshot.remaining_tokens = Some(remaining_percent * calibration.tokens_per_percent);
         snapshot.remaining_value_usd = Some(remaining_percent * calibration.dollars_per_percent);
         if let Some(allowance) = snapshot.allowance_percent_per_hour {
             snapshot.allowance_tokens_per_hour = Some(allowance * calibration.tokens_per_percent);
         }
+        snapshot.calibration = Some(calibration.quality);
     }
 
     snapshot
@@ -310,76 +364,125 @@ mod tests {
         }
     }
 
-    #[test]
-    fn burn_rate_needs_three_samples_and_ten_minutes() {
-        assert!(burn_rate(&[sample(0, 0.0), sample(30, 10.0)]).is_none());
-        // Three samples but only 5 minutes of span: still not enough.
-        assert!(burn_rate(&[sample(0, 0.0), sample(2, 1.0), sample(5, 2.0)]).is_none());
-        assert!(burn_rate(&[sample(0, 0.0), sample(30, 10.0), sample(60, 20.0)]).is_some());
+    /// Feed a calibrator a run of readings that each move `delta` percent with
+    /// `tokens` of local volume in between.
+    fn observed(count: usize, delta: f64, tokens: i64) -> (Calibrator, Vec<UsageRecord>) {
+        let mut c = Calibrator::default();
+        let mut records = Vec::new();
+        let mut samples = Vec::new();
+        for i in 0..=count {
+            samples.push(sample((i as i64) * 30, (i as f64) * delta));
+            if i > 0 {
+                records.push(record((i as i64) * 30 - 15, &format!("r{i}"), tokens));
+            }
+        }
+        for pair in samples.windows(2) {
+            c.observe("k", &pair[0], &pair[1], &records);
+        }
+        (c, records)
     }
 
     #[test]
-    fn burn_rate_is_percent_per_hour() {
-        // 20 points over two hours = 10 points/hour.
-        let rate = burn_rate(&[sample(0, 0.0), sample(60, 10.0), sample(120, 20.0)]).unwrap();
-        assert!((rate - 10.0).abs() < 1e-6, "got {rate}");
-    }
-
-    /// The 5-hour window rolls, so its percentage falls as well as rises. A
-    /// negative slope must clamp to zero rather than projecting a limit that
-    /// refills forever.
-    #[test]
-    fn burn_rate_never_goes_negative() {
-        let rate = burn_rate(&[sample(0, 50.0), sample(60, 30.0), sample(120, 10.0)]).unwrap();
-        assert_eq!(rate, 0.0);
-    }
-
-    #[test]
-    fn calibration_needs_three_usable_pairs() {
-        let samples = vec![sample(0, 0.0), sample(30, 10.0), sample(60, 20.0)];
-        let records = vec![record(10, "a", 1000), record(40, "b", 1000)];
-        // Only two pairs exist, so there can be at most two ratios.
-        assert!(calibrate(&samples, &records).is_none());
-    }
-
-    #[test]
-    fn calibration_takes_the_median_ratio() {
-        let samples = vec![
-            sample(0, 0.0),
-            sample(30, 10.0),
-            sample(60, 20.0),
-            sample(90, 30.0),
-        ];
-        // 10 points per interval. Middle interval is a wild outlier; the median
-        // must ignore it rather than let it set the whole calibration.
-        let records = vec![
-            record(15, "a", 10_000),
-            record(45, "b", 900_000),
-            record(75, "c", 10_000),
-        ];
-        let c = calibrate(&samples, &records).unwrap();
+    fn calibration_needs_enough_observations() {
+        let (c, _) = observed(MIN_RATIOS - 1, 10.0, 10_000);
         assert!(
-            (c.tokens_per_percent - 1000.0).abs() < 1e-6,
-            "got {}",
-            c.tokens_per_percent
+            c.calibration("k").is_none(),
+            "should hold out below the minimum"
+        );
+        let (c, _) = observed(MIN_RATIOS, 10.0, 10_000);
+        let cal = c.calibration("k").expect("should calibrate");
+        assert_eq!(cal.quality, Quality::Calibrated);
+        assert!((cal.tokens_per_percent - 1000.0).abs() < 1e-6);
+    }
+
+    /// Median, not mean — one mis-aligned interval must not drag the estimate.
+    #[test]
+    fn calibration_rejects_an_outlier() {
+        let mut c = Calibrator::default();
+        let mut records = Vec::new();
+        let mut samples = Vec::new();
+        for i in 0..=6 {
+            samples.push(sample((i as i64) * 30, (i as f64) * 10.0));
+            if i > 0 {
+                // The third interval is a hundredfold outlier.
+                let tokens = if i == 3 { 1_000_000 } else { 10_000 };
+                records.push(record((i as i64) * 30 - 15, &format!("r{i}"), tokens));
+            }
+        }
+        for pair in samples.windows(2) {
+            c.observe("k", &pair[0], &pair[1], &records);
+        }
+        let cal = c.calibration("k").unwrap();
+        assert!(
+            (cal.tokens_per_percent - 1000.0).abs() < 1e-6,
+            "outlier leaked into the median: {}",
+            cal.tokens_per_percent
+        );
+    }
+
+    /// The whole point of accumulating: a 5-hour rollover used to discard the
+    /// estimate and start again from three samples.
+    #[test]
+    fn calibration_survives_a_window_rollover() {
+        let (mut c, records) = observed(MIN_RATIOS, 10.0, 10_000);
+        assert!(c.calibration("k").is_some());
+
+        // A new window instance: different reset time, percentages restart.
+        let fresh_a = UsageSample {
+            date: t(400),
+            percent: 2.0,
+            resets_at: Some(t(900)),
+        };
+        let fresh_b = UsageSample {
+            date: t(430),
+            percent: 12.0,
+            resets_at: Some(t(900)),
+        };
+        c.observe("k", &fresh_a, &fresh_b, &records);
+
+        assert!(
+            c.calibration("k").is_some(),
+            "the accumulated estimate must outlive the window it came from"
         );
     }
 
     #[test]
-    fn calibration_ignores_intervals_where_the_window_rolled_back() {
-        let samples = vec![
-            sample(0, 40.0),
-            sample(30, 35.0), // rolled off, negative delta
-            sample(60, 45.0),
-            sample(90, 55.0),
-            sample(120, 65.0),
-        ];
-        let records: Vec<UsageRecord> = (0..5)
-            .map(|i| record(i * 30 + 5, &format!("r{i}"), 10_000))
-            .collect();
-        let c = calibrate(&samples, &records).unwrap();
-        // Three valid +10 pairs at 10k tokens each => 1000 tokens per point.
-        assert!((c.tokens_per_percent - 1000.0).abs() < 1e-6);
+    fn calibration_ignores_roll_offs_and_noise() {
+        let mut c = Calibrator::default();
+        let records = vec![record(15, "a", 10_000)];
+        // A percentage that fell, and one that barely moved.
+        c.observe("k", &sample(0, 40.0), &sample(30, 35.0), &records);
+        c.observe("k", &sample(0, 40.0), &sample(30, 40.2), &records);
+        assert!(c.ratios.get("k").map_or(true, |r| r.is_empty()));
+    }
+
+    #[test]
+    fn calibration_is_bounded() {
+        let (c, _) = observed(MAX_RATIOS + 20, 5.0, 5_000);
+        assert_eq!(c.ratios["k"].len(), MAX_RATIOS);
+    }
+
+    /// Rather than showing nothing for hours, one aggregate ratio over whatever
+    /// the window has already moved — clearly labelled as provisional.
+    #[test]
+    fn bootstrap_fills_in_before_calibration() {
+        let samples = vec![sample(0, 0.0), sample(30, 10.0)];
+        let records = vec![record(15, "a", 10_000)];
+        // Not enough for the precise path.
+        let mut c = Calibrator::default();
+        c.observe("k", &samples[0], &samples[1], &records);
+        assert!(c.calibration("k").is_none());
+
+        let b = bootstrap(&samples, &records).expect("bootstrap should fill in");
+        assert_eq!(b.quality, Quality::Provisional);
+        assert!((b.tokens_per_percent - 1000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bootstrap_needs_the_window_to_have_moved() {
+        let samples = vec![sample(0, 40.0), sample(30, 40.2)];
+        let records = vec![record(15, "a", 10_000)];
+        assert!(bootstrap(&samples, &records).is_none());
     }
 
     fn flat() -> ActivityProfile {
@@ -400,6 +503,7 @@ mod tests {
             &[],
             &[],
             &flat(),
+            None,
             t(0),
         );
         assert!((s.allowance_percent_per_hour.unwrap() - 10.0).abs() < 1e-4);
@@ -418,6 +522,7 @@ mod tests {
             &[],
             &[],
             &flat(),
+            None,
             t(0),
         );
         assert!(
@@ -441,6 +546,7 @@ mod tests {
             &[],
             &[],
             &flat(),
+            None,
             t(0),
         );
         assert!(s.pace_ratio.is_some());
@@ -460,6 +566,7 @@ mod tests {
             &[],
             &[],
             &flat(),
+            None,
             t(0),
         );
         assert!(s.pace_ratio.is_none());
@@ -476,6 +583,7 @@ mod tests {
             &[],
             &[],
             &flat(),
+            None,
             t(0),
         );
         assert!(s.allowance_percent_per_hour.is_none());
@@ -539,6 +647,7 @@ mod tests {
                 &[],
                 &[],
                 p,
+                None,
                 now,
             )
         };
