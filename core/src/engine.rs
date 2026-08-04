@@ -329,16 +329,26 @@ impl Engine {
             }
         }
 
+        let records = self.scanner.state.records.clone();
         for item in &observed {
             let key = format!("{}|{}", item.kind.raw(), item.label);
-            self.history.record(
-                &key,
-                UsageSample {
-                    date: now,
-                    percent: item.percent,
-                    resets_at: item.resets_at,
-                },
-            );
+            let sample = UsageSample {
+                date: now,
+                percent: item.percent,
+                resets_at: item.resets_at,
+            };
+            // Record the ratio against the previous reading, before this one is
+            // appended and becomes the previous itself.
+            if let Some(previous) = self
+                .history
+                .series
+                .get(&key)
+                .and_then(|s| s.last())
+                .cloned()
+            {
+                self.calibrator.observe(&key, &previous, &sample, &records);
+            }
+            self.history.record(&key, sample);
             self.anchor_percents.insert(key, item.percent);
         }
         self.anchor_date = Some(now);
@@ -719,6 +729,51 @@ impl EngineHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pricing::TokenTotals;
+    use crate::transcript::UsageRecord;
+
+    /// The calibrator is only useful if something feeds it, and nothing did:
+    /// the call was dropped by a bad patch, the code still compiled, the file
+    /// was still written — empty — and the headroom would have stayed
+    /// provisional forever. Nothing else in the suite noticed.
+    #[test]
+    fn a_poll_feeds_the_calibrator() {
+        let now = Utc::now();
+        let mut calibrator = projection::Calibrator::default();
+        let records: Vec<UsageRecord> = (0..3)
+            .map(|i| UsageRecord {
+                id: format!("r{i}"),
+                date: now - Duration::minutes(2) + Duration::seconds(i * 10),
+                model: "claude-opus-5".into(),
+                project: "p".into(),
+                project_path: "/p".into(),
+                session_id: "s".into(),
+                tokens: TokenTotals {
+                    output: 5_000,
+                    ..Default::default()
+                },
+            })
+            .collect();
+
+        let previous = UsageSample {
+            date: now - Duration::minutes(3),
+            percent: 40.0,
+            resets_at: Some(now + Duration::hours(2)),
+        };
+        let current = UsageSample {
+            date: now,
+            percent: 42.0,
+            resets_at: previous.resets_at,
+        };
+
+        calibrator.observe("session|5-hour session", &previous, &current, &records);
+        let banked = calibrator
+            .ratios
+            .get("session|5-hour session")
+            .map(|r| r.len())
+            .unwrap_or(0);
+        assert_eq!(banked, 1, "a qualifying poll pair must bank a ratio");
+    }
 
     #[test]
     fn scoped_weekly_limits_are_labelled_by_model() {

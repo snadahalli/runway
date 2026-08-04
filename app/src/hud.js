@@ -14,8 +14,14 @@ let view = null;
 // macOS and WebView2 on Windows. `startDragging()` hands the drag to the window
 // manager, which is what makes it feel native rather than chasing the cursor a
 // frame behind.
+// The panel has no menu of its own; right-click reaches the real About panel.
+document.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  invoke("open_about");
+});
+
 document.addEventListener("mousedown", async (e) => {
-  if (e.button !== 0) return;
+  if (e.button !== 0) return; // right-click is the About gesture, not a drag
   if (e.target.closest("button, input, select, a")) return;
   await appWindow.startDragging();
 });

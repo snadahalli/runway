@@ -12,10 +12,11 @@
 //! commands need no capability grant and the popover can't be tricked into
 //! triggering an install.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::log::{self, LogError};
@@ -32,6 +33,15 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 3600);
 /// popover; `None` means we're current or haven't looked yet.
 #[derive(Default)]
 pub struct AvailableUpdate(pub Mutex<Option<String>>);
+
+/// Set while an install is in flight.
+///
+/// A 4MB download over a slow link takes over a minute, during which the button
+/// said "Installing…" and nothing else moved. Both of us read that as a dead
+/// button and clicked again — and two installs then raced to replace the same
+/// bundle. It survived, which is luck rather than design.
+#[derive(Default)]
+pub struct Installing(pub AtomicBool);
 
 pub fn spawn_periodic_checks(app: &AppHandle) {
     let app = app.clone();
@@ -102,6 +112,21 @@ pub async fn check(app: &AppHandle, announce: bool) -> Option<String> {
 
 /// Download, verify and install. The app restarts into the new version.
 pub async fn install(app: &AppHandle) -> Result<(), String> {
+    // Refuse a second install rather than letting two of them race to replace
+    // the same bundle.
+    let guard = app.state::<Installing>();
+    if guard.0.swap(true, Ordering::SeqCst) {
+        log::info("updater", "install already in progress — ignoring");
+        return Err("An update is already installing.".into());
+    }
+    let result = install_inner(app).await;
+    if result.is_err() {
+        app.state::<Installing>().0.store(false, Ordering::SeqCst);
+    }
+    result
+}
+
+async fn install_inner(app: &AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater
         .check()
@@ -110,8 +135,27 @@ pub async fn install(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "no update available".to_string())?;
 
     log::info("updater", format!("installing v{}", update.version));
+
+    // Report progress. Without it a minute of silence is indistinguishable from
+    // a failure — which is exactly how this was first misdiagnosed.
+    let handle = app.clone();
+    let mut downloaded: usize = 0;
+    let mut last_percent: i64 = -1;
     update
-        .download_and_install(|_chunk, _total| {}, || {})
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk;
+                let percent = total
+                    .map(|t| (downloaded as f64 / t as f64 * 100.0) as i64)
+                    .unwrap_or(-1);
+                // One event per whole percent, not per chunk.
+                if percent != last_percent {
+                    last_percent = percent;
+                    let _ = handle.emit("runway://update-progress", percent);
+                }
+            },
+            || {},
+        )
         .await
         .map_err(|e| {
             log::warn("updater install", &e);
