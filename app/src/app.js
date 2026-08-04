@@ -7,6 +7,9 @@ const { listen } = window.__TAURI__.event;
 
 let view = null;
 let panel = "runway";
+// Percent of the update download, or null when nothing is installing. A minute
+// of silence reads as a broken button, so this is not cosmetic.
+let installProgress = null;
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, className, text) => {
@@ -35,16 +38,23 @@ function render() {
   if (panel === "about") renderAbout();
 }
 
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    panel = tab.dataset.panel;
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("is-active", t === tab));
-    document.querySelectorAll(".panel").forEach((p) => {
-      p.hidden = p.dataset.panel !== panel;
-    });
-    render();
+function selectPanel(name) {
+  panel = name;
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.classList.toggle("is-active", t.dataset.panel === name)
+  );
+  document.querySelectorAll(".panel").forEach((p) => {
+    p.hidden = p.dataset.panel !== name;
   });
+  render();
+}
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => selectPanel(tab.dataset.panel));
 });
+
+// Right-clicking the desktop panel asks for About.
+listen("runway://show-panel", (e) => selectPanel(e.payload));
 
 $("refresh").addEventListener("click", () => invoke("refresh"));
 $("quit").addEventListener("click", () => invoke("quit"));
@@ -55,6 +65,13 @@ window.addEventListener("blur", () => {
 });
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") invoke("close_popover");
+});
+
+listen("runway://update-progress", (e) => {
+  installProgress = typeof e.payload === "number" && e.payload >= 0 ? e.payload : null;
+  document.querySelectorAll(".install-btn").forEach((b) => {
+    b.textContent = installProgress === null ? "Installing\u2026" : `Downloading ${installProgress}%\u2026`;
+  });
 });
 
 listen("runway://snapshot", load);
@@ -136,22 +153,28 @@ function updateCard() {
   card.append(el("div", "section-title", `Runway ${view.updateAvailable} is available`));
   card.append(el("div", "muted", `You're on ${view.version}. Installing takes a few seconds and restarts Runway.`));
 
-  const install = el("button", "icon", "Install and restart");
+  card.append(installButton((message) => card.append(el("div", "muted", message))));
+  return card;
+}
+
+// Shared by the Runway banner and the About panel, so they can't drift.
+function installButton(onError) {
+  const install = el("button", "icon install-btn", "Install and restart");
   install.style.marginTop = "8px";
   install.addEventListener("click", async () => {
     install.disabled = true;
-    install.textContent = "Installing\u2026";
+    install.textContent = "Starting\u2026";
     try {
       await invoke("install_update");
+      // Success never returns here: the app restarts underneath us.
     } catch (e) {
       install.disabled = false;
       install.textContent = "Install and restart";
-      card.append(el("div", "muted", `Update failed: ${e}`));
+      onError(`Update failed: ${e}`);
       window.reportError?.("install_update", e);
     }
   });
-  card.append(install);
-  return card;
+  return install;
 }
 
 // Windows files every new notification-area icon into the hidden overflow
@@ -570,10 +593,7 @@ function renderAbout() {
   updates.append(el("div", "section-title", "Updates"));
   if (view.updateAvailable) {
     updates.append(el("div", "muted", `Runway ${view.updateAvailable} is available.`));
-    const install = el("button", "icon", "Install and restart");
-    install.style.marginTop = "8px";
-    install.addEventListener("click", () => invoke("install_update"));
-    updates.append(install);
+    updates.append(installButton((m) => updates.append(el("div", "muted", m))));
   } else {
     updates.append(el("div", "muted", "Checked daily. Every update is signed and verified before it installs."));
     const check = el("button", "icon", "Check now");

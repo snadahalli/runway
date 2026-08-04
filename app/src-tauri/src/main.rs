@@ -102,6 +102,7 @@ fn main() {
             save_hud_position,
             log_error,
             open_link,
+            open_about,
             check_for_update,
             install_update,
             set_hud_visible,
@@ -174,6 +175,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings: Mutex::new(settings),
     });
     app.manage(updater::AvailableUpdate::default());
+    app.manage(updater::Installing::default());
     updater::spawn_periodic_checks(app.handle());
 
     if show_hud_at_launch {
@@ -554,6 +556,16 @@ async fn check_for_update(app: AppHandle) -> Option<String> {
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     updater::install(&app).await
+}
+
+/// Right-clicking the desktop panel brings up the real About panel rather than
+/// a second, smaller copy of it. The panel is otherwise a dead end — there is no
+/// other way to reach settings or quit from it.
+#[tauri::command]
+fn open_about(app: AppHandle) {
+    reveal_popover(&app);
+    app.emit("runway://show-panel", "about")
+        .or_warn("ask the popover to show About");
 }
 
 /// The only links the app will ever open, by name.
