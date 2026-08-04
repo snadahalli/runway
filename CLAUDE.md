@@ -77,8 +77,8 @@ logic lives there.
   1.0 of work whatever its shape). Break either and every derived number drifts.
 - **A "working hour" is a mean over a set, not `Σr²/Σr`.** The closed form was
   tried and is far too sensitive to one outlier: a single heavy afternoon was
-  21% of a fortnight here and dragged the reference from 4.3 to 8.6, doubling
-  the reported allowance. See `typical_active_intensity`.
+  a fifth of a fortnight's tokens here and dragged the reference from 4.3 to
+  8.6, doubling the reported allowance. See `typical_active_intensity`.
 - **`samples.json` and `scan-state.json` store dates as a bare `Double` counting
   seconds from 2001-01-01**, not 1970 — inherited from the Swift build that
   wrote them first, and kept so upgraders don't lose calibration history.
@@ -125,19 +125,18 @@ settings mutexes from inverting against each other.
 
 ## Verified working (2026-08-04)
 
-Against a live Max 5x account on macOS:
+Against a live paid account on macOS:
 
-- **The ledger is exact.** An independent recount of 34,239 raw JSONL lines
-  matched Runway to the token in all five categories, and to the cent on cost
-  ($590.28) once the recount used the real rate card. 887M of 898M billable
-  tokens were cache reads — priced at input rate that week would read ~$5,000
-  instead of $590.
+- **The ledger is exact.** An independent recount of tens of thousands of raw
+  JSONL lines matched Runway to the token in all five categories, and to the
+  cent on cost once the recount used the real rate card. ~99% of billable tokens
+  in that sample were cache reads — pricing them at input rate would have
+  overstated the week by roughly an order of magnitude.
 - **Auto-update works end to end**, exercised for real across 0.1.3 → 0.1.4 →
   0.1.5: detect, download, verify signature, swap the bundle, restart.
-- The activity profile matches the user's actual 09:00–19:00 Mon–Fri pattern,
-  and the weekly allowance reconciles: 44.6 calendar hours to reset became 9.7
-  working hours, which is right for a Tuesday evening against a Thursday noon
-  reset.
+- The activity profile matches the maintainer's real weekday pattern, and the
+  weekly allowance reconciles by hand: ~45 calendar hours to reset became ~10
+  working hours, which is right for an evening two days before a midday reset.
 - Calibration banks ratios once the limit actually moves (2 within 4 minutes of
   real use).
 - CI green on macOS, Windows and Linux.
