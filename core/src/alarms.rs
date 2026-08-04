@@ -422,6 +422,166 @@ mod tests {
         assert!(raised[0].title.contains("run dry early"));
     }
 
+    /// The dedupe set is the only thing standing between a limit parked at
+    /// 80.1% and a notification on every poll, forever. It has to survive a
+    /// relaunch, which means actually round-tripping through the file.
+    #[test]
+    fn the_dedupe_set_survives_a_restart() {
+        let store = std::env::temp_dir().join(format!("runway-fired-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&store);
+        let settings = Settings::default();
+        let now = Utc::now();
+        let limit = limit(82.0, 2.0);
+
+        let mut first = AlarmEngine::persisting_to(store.clone());
+        assert_eq!(
+            first
+                .evaluate(&snap(vec![limit.clone()]), &settings, now)
+                .len(),
+            2
+        );
+
+        // A fresh engine reading the same file must not re-fire them.
+        let mut second = AlarmEngine::persisting_to(store.clone());
+        assert!(second
+            .evaluate(&snap(vec![limit]), &settings, now)
+            .is_empty());
+
+        let _ = std::fs::remove_file(&store);
+    }
+
+    /// Bounded so weeks of rolling windows can't grow the file without limit,
+    /// and — the part that would actually hurt — so trimming keeps the *newest*
+    /// keys rather than dropping the ones still in force.
+    #[test]
+    fn the_dedupe_set_is_bounded_and_drops_the_oldest() {
+        let mut e = AlarmEngine::ephemeral();
+        for i in 0..MAX_FIRED_KEYS + 50 {
+            e.mark_fired(&format!("key-{i}"));
+        }
+        assert_eq!(e.fired.len(), MAX_FIRED_KEYS);
+        assert!(!e.has_fired("key-0"), "oldest should have been dropped");
+        assert!(
+            e.has_fired(&format!("key-{}", MAX_FIRED_KEYS + 49)),
+            "newest must be retained"
+        );
+    }
+
+    #[test]
+    fn the_in_app_log_is_bounded_too() {
+        let mut e = AlarmEngine::ephemeral();
+        let settings = Settings::default();
+        // Each new window instance re-arms every threshold, so this generates
+        // far more alarms than the log is allowed to keep.
+        for hours in 1..40 {
+            e.evaluate(
+                &snap(vec![limit(99.0, hours as f64)]),
+                &settings,
+                Utc::now(),
+            );
+        }
+        assert_eq!(e.recent.len(), MAX_RECENT);
+    }
+
+    #[test]
+    fn predictive_alarms_can_be_turned_off() {
+        let mut e = engine();
+        let now = Utc::now();
+        let s = Settings {
+            thresholds: vec![],
+            predictive_alarms: false,
+            ..Default::default()
+        };
+        let mut l = limit(40.0, 2.0);
+        l.exhausts_at = Some(now + Duration::minutes(30));
+        assert!(l.runs_dry_early());
+        assert!(e.evaluate(&snap(vec![l]), &s, now).is_empty());
+    }
+
+    /// Every limit is evaluated, not just the headline one — a weekly limit in
+    /// trouble must still fire while the session limit is the one on display.
+    #[test]
+    fn each_limit_is_evaluated_independently() {
+        let mut e = engine();
+        let s = Settings {
+            thresholds: vec![80.0],
+            ..Default::default()
+        };
+        let session = limit(85.0, 2.0);
+        let weekly = LimitSnapshot {
+            kind: LimitKind::WeeklyAll,
+            label: "Weekly · all models".into(),
+            ..limit(90.0, 40.0)
+        };
+        let raised = e.evaluate(&snap(vec![session, weekly]), &s, Utc::now());
+        assert_eq!(raised.len(), 2);
+        let titles: Vec<&str> = raised.iter().map(|a| a.title.as_str()).collect();
+        assert!(titles.iter().any(|t| t.contains("5-hour session")));
+        assert!(titles.iter().any(|t| t.contains("Weekly")));
+    }
+
+    /// The pace rule is `>=`, so a limit sitting exactly on the configured
+    /// ratio should fire rather than hover one hair below it forever.
+    #[test]
+    fn pace_alarm_fires_exactly_at_the_configured_ratio() {
+        let s = Settings {
+            thresholds: vec![],
+            pace_alarm_ratio: 2.0,
+            ..Default::default()
+        };
+        for (ratio, expected) in [(1.99, 0), (2.0, 1), (2.5, 1)] {
+            let mut e = engine();
+            let mut l = limit(40.0, 2.0);
+            l.pace_ratio = Some(ratio);
+            assert_eq!(
+                e.evaluate(&snap(vec![l]), &s, Utc::now()).len(),
+                expected,
+                "ratio {ratio}"
+            );
+        }
+    }
+
+    /// Thresholds fire lowest-first, so the log reads in the order things
+    /// actually happened even when several are crossed in one reading.
+    #[test]
+    fn thresholds_fire_in_ascending_order() {
+        let mut e = engine();
+        let s = Settings {
+            thresholds: vec![95.0, 50.0, 80.0],
+            ..Default::default()
+        };
+        let raised = e.evaluate(&snap(vec![limit(96.0, 1.0)]), &s, Utc::now());
+        let order: Vec<String> = raised.iter().map(|a| a.title.clone()).collect();
+        assert_eq!(order.len(), 3);
+        assert!(order[0].contains("50%"), "{order:?}");
+        assert!(order[1].contains("80%"), "{order:?}");
+        assert!(order[2].contains("95%"), "{order:?}");
+    }
+
+    /// The body is the whole value of a threshold alarm — "82% used" alone
+    /// tells you nothing you couldn't see.
+    #[test]
+    fn threshold_bodies_carry_the_actionable_numbers() {
+        let mut e = engine();
+        let mut l = limit(82.0, 2.0);
+        l.allowance_tokens_per_hour = Some(418_000.0);
+        let raised = e.evaluate(
+            &snap(vec![l]),
+            &Settings {
+                thresholds: vec![80.0],
+                ..Default::default()
+            },
+            Utc::now(),
+        );
+        let body = &raised[0].body;
+        assert!(body.contains("82% used"), "{body}");
+        // Not "2h": a sliver of the window has already elapsed by the time the
+        // body is built, so it formats as 1h 59m. Asserting the exact string
+        // would fail on wall-clock jitter rather than on anything real.
+        assert!(body.contains("resets in 1h"), "{body}");
+        assert!(body.contains("418K/h"), "{body}");
+    }
+
     #[test]
     fn prediction_beyond_three_days_is_not_trustworthy() {
         let mut e = engine();

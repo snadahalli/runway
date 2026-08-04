@@ -312,12 +312,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let hud = CheckMenuItemBuilder::with_id("hud", "Desktop panel")
         .checked(Settings::load().show_hud)
         .build(app)?;
+    let test_alarm = MenuItemBuilder::with_id("test-alarm", "Send a test alarm").build(app)?;
     let update = MenuItemBuilder::with_id("update", "Check for updates\u{2026}").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Runway").build(app)?;
     let menu = MenuBuilder::new(app)
         .items(&[&open, &refresh, &hud])
         .separator()
-        .items(&[&update, &quit])
+        .items(&[&test_alarm, &update, &quit])
         .build()?;
 
     let icon = to_image(tray_icon::placeholder((150, 150, 150), 32));
@@ -341,6 +342,25 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                     .and_then(|w| w.is_visible().ok())
                     .unwrap_or(false);
                 set_hud(app, !visible);
+            }
+            // The rules are unit-tested; *delivery* is per-platform and cannot
+            // be. This is the only way to find out whether notifications are
+            // permitted and actually appear on a given machine.
+            "test-alarm" => {
+                log::info("alarms", "sending a test notification");
+                let sent = app
+                    .notification()
+                    .builder()
+                    .title("Runway alarms are working")
+                    .body("This is what a threshold alert looks like.")
+                    .show();
+                match sent {
+                    Ok(()) => log::info("alarms", "notification handed to the OS"),
+                    Err(e) => log::warn(
+                        "alarms",
+                        format!("{e} — check notification permission for Runway"),
+                    ),
+                }
             }
             "update" => {
                 let app = app.clone();
