@@ -1,0 +1,23 @@
+{
+  "version": "0.1.6",
+  "notes": "See https://github.com/snadahalli/runway/releases/tag/v0.1.6",
+  "pub_date": "2026-08-06T05:29:26Z",
+  "platforms": {
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRThabGozU0RxN3l6NkU5MFhGMXdrdHVzMW9Xalc5dzhrTlNjbkl1WTFZKzIrdEZDOWZCZkU0b25sL1ppUytzRjBvd2grb0tEU2M1VWNzT0NDUHQ0azVQTkxsWG9KZ0F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1OTk0MTE0CWZpbGU6UnVud2F5LmFwcC50YXIuZ3oKdFVzcVYvZmxqbWdOeGRLSm0vVzJ0TjFTYVVrWVhmYzZHZkd3N2N5cWRsT05tMmJpNmUxcGRHd1N4ZkNuUlQxTm1PSjJaWnltaVl3QklQaGpaSklrREE9PQo=",
+      "url": "https://github.com/snadahalli/runway/releases/download/v0.1.6/Runway.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRThabGozU0RxN3l6NkU5MFhGMXdrdHVzMW9Xalc5dzhrTlNjbkl1WTFZKzIrdEZDOWZCZkU0b25sL1ppUytzRjBvd2grb0tEU2M1VWNzT0NDUHQ0azVQTkxsWG9KZ0F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1OTk0MTE0CWZpbGU6UnVud2F5LmFwcC50YXIuZ3oKdFVzcVYvZmxqbWdOeGRLSm0vVzJ0TjFTYVVrWVhmYzZHZkd3N2N5cWRsT05tMmJpNmUxcGRHd1N4ZkNuUlQxTm1PSjJaWnltaVl3QklQaGpaSklrREE9PQo=",
+      "url": "https://github.com/snadahalli/runway/releases/download/v0.1.6/Runway.app.tar.gz"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRThabGozU0RxN3kxNmdydXNDaTZibGxwcHlvU1dFNndicEhhQ0ozdjNtNTdBOGxKQllWZEdEeFFLKzM1TDZOZCtCcFkyajZrZUMvekZVWkp4L2JPVjVnNm5lbXFHRGdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1OTkzODU0CWZpbGU6UnVud2F5XzAuMS42X2FtZDY0LkFwcEltYWdlCnVyaDhvb3p6WmxleUMzQWZWVzhBa0piZ1I1WlFvMkhWbXVDQjB6ZUpPcDE5ZVdiT3NFemxmbldQaFA1Q1N1aVcvbGVnRXNtZFNhT0c2aHRIVjhDdkNnPT0K",
+      "url": "https://github.com/snadahalli/runway/releases/download/v0.1.6/Runway_0.1.6_amd64.AppImage"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTRThabGozU0RxN3lTV0wrZXdFZHJPYnM0dDNXYlhkSnlrV0Vqd0h5a05ZWk9xWTBHS1dCK2Y2NkpFRzh5c3VNQ0d2TkYzQlBRdHRBd3dHbzI0cjVTWHVNdHBnaHd3akFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1OTkzOTM0CWZpbGU6UnVud2F5XzAuMS42X3g2NC1zZXR1cC5leGUKSEt6Z3RrL0NzNWhIb3VaR05WdElOckhKdktNMWpxVmRUMHZDdUg0L2dNOTlFQmZqVXJ2VG1IaERTMlI4Vzh6MklaNUtEbkVSY3J1YUFXVFl6SUhsREE9PQo=",
+      "url": "https://github.com/snadahalli/runway/releases/download/v0.1.6/Runway_0.1.6_x64-setup.exe"
+    }
+  }
+}
