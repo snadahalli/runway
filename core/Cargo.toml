@@ -1,6 +1,6 @@
 [package]
 name = "runway-core"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 rust-version = "1.77"
 description = "Platform-neutral engine for Runway: reads Claude Code's local logs and the OAuth usage endpoint, and derives burn allowance."

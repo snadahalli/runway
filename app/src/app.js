@@ -285,6 +285,13 @@ function headlineCard(now) {
     big.append(el("span", null, "—"));
   }
   card.append(big, el("div", "sentence", headlineSentence(limit, now)));
+  if (rough) {
+    card.append(
+      el("div", "sentence",
+        "\u2248 estimated from what this window has moved so far. It firms up " +
+        "after a few more readings where the limit actually changed.")
+    );
+  }
   return card;
 }
 

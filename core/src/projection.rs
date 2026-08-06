@@ -102,6 +102,12 @@ pub struct Ratio {
     pub at: DateTime<Utc>,
     pub tokens: f64,
     pub dollars: f64,
+    /// How long the two readings were apart. Zero means the observation predates
+    /// this field, in which case its provenance is unknown and it is ignored —
+    /// the old code recorded pairs spanning hours, and those are exactly the
+    /// ones that need discarding.
+    #[serde(default)]
+    pub interval_seconds: f64,
 }
 
 /// Accumulated calibration observations, per limit.
@@ -128,6 +134,18 @@ pub const RATIO_RETENTION_DAYS: i64 = 21;
 /// produces a wild ratio.
 const MIN_DELTA: f64 = 0.5;
 
+/// Above this, the two readings are too far apart to relate to each other.
+///
+/// `MIN_DELTA` guarded the numerator and nothing guarded the interval, so a
+/// reading taken after the app had been closed overnight was compared against
+/// one from fourteen hours earlier — summing every token logged in between
+/// against whatever the percentage happened to have moved, across several
+/// window rollovers. On real data every wild observation followed a long gap:
+/// normal 3-15 minute intervals produced 2,000-18,000 tokens/percent, while
+/// gaps of 40 minutes to 14 hours produced 141,000-197,000. Generous against
+/// the 180s poll floor, so an ordinary late poll still counts.
+const MAX_INTERVAL_SECONDS: f64 = 900.0;
+
 impl Calibrator {
     /// Record what happened between two consecutive readings of one limit.
     pub fn observe(
@@ -141,6 +159,10 @@ impl Calibrator {
         // The 5-hour window's percentage falls as old requests age out, and a
         // negative delta would invert the ratio.
         if delta < MIN_DELTA {
+            return;
+        }
+        let interval = (current.date - previous.date).num_milliseconds() as f64 / 1000.0;
+        if !(0.0..=MAX_INTERVAL_SECONDS).contains(&interval) {
             return;
         }
         let in_window = transcript::within(records, previous.date, current.date);
@@ -157,6 +179,7 @@ impl Calibrator {
             at: current.date,
             tokens: tokens / delta,
             dollars: transcript::total_cost(&in_window) / delta,
+            interval_seconds: interval,
         });
 
         let cutoff = Utc::now() - Duration::days(RATIO_RETENTION_DAYS);
@@ -167,15 +190,24 @@ impl Calibrator {
         }
     }
 
-    /// The precise figure, or `None` until there are enough observations.
+    /// The precise figure, or `None` until there are enough usable observations.
+    ///
+    /// Observations from before intervals were recorded are dropped rather than
+    /// trusted: the code that wrote them accepted pairs spanning hours, and a
+    /// median cannot be relied on to outvote contamination it may be full of.
     pub fn calibration(&self, key: &str) -> Option<Calibration> {
-        let list = self.ratios.get(key)?;
-        if list.len() < MIN_RATIOS {
+        let usable: Vec<&Ratio> = self
+            .ratios
+            .get(key)?
+            .iter()
+            .filter(|r| r.interval_seconds > 0.0 && r.interval_seconds <= MAX_INTERVAL_SECONDS)
+            .collect();
+        if usable.len() < MIN_RATIOS {
             return None;
         }
         Some(Calibration {
-            tokens_per_percent: median(&list.iter().map(|r| r.tokens).collect::<Vec<_>>()),
-            dollars_per_percent: median(&list.iter().map(|r| r.dollars).collect::<Vec<_>>()),
+            tokens_per_percent: median(&usable.iter().map(|r| r.tokens).collect::<Vec<_>>()),
+            dollars_per_percent: median(&usable.iter().map(|r| r.dollars).collect::<Vec<_>>()),
             quality: Quality::Calibrated,
         })
     }
@@ -370,10 +402,11 @@ mod tests {
         let mut c = Calibrator::default();
         let mut records = Vec::new();
         let mut samples = Vec::new();
+        // Three minutes apart, matching the 180s poll floor.
         for i in 0..=count {
-            samples.push(sample((i as i64) * 30, (i as f64) * delta));
+            samples.push(sample((i as i64) * 3, (i as f64) * delta));
             if i > 0 {
-                records.push(record((i as i64) * 30 - 15, &format!("r{i}"), tokens));
+                records.push(record((i as i64) * 3 - 1, &format!("r{i}"), tokens));
             }
         }
         for pair in samples.windows(2) {
@@ -402,11 +435,11 @@ mod tests {
         let mut records = Vec::new();
         let mut samples = Vec::new();
         for i in 0..=6 {
-            samples.push(sample((i as i64) * 30, (i as f64) * 10.0));
+            samples.push(sample((i as i64) * 3, (i as f64) * 10.0));
             if i > 0 {
                 // The third interval is a hundredfold outlier.
                 let tokens = if i == 3 { 1_000_000 } else { 10_000 };
-                records.push(record((i as i64) * 30 - 15, &format!("r{i}"), tokens));
+                records.push(record((i as i64) * 3 - 1, &format!("r{i}"), tokens));
             }
         }
         for pair in samples.windows(2) {
@@ -424,8 +457,9 @@ mod tests {
     /// estimate and start again from three samples.
     #[test]
     fn calibration_survives_a_window_rollover() {
-        let (mut c, records) = observed(MIN_RATIOS, 10.0, 10_000);
+        let (mut c, mut records) = observed(MIN_RATIOS, 10.0, 10_000);
         assert!(c.calibration("k").is_some());
+        records.push(record(401, "rollover", 10_000));
 
         // A new window instance: different reset time, percentages restart.
         let fresh_a = UsageSample {
@@ -449,11 +483,64 @@ mod tests {
     #[test]
     fn calibration_ignores_roll_offs_and_noise() {
         let mut c = Calibrator::default();
-        let records = vec![record(15, "a", 10_000)];
+        let records = vec![record(1, "a", 10_000)];
         // A percentage that fell, and one that barely moved.
-        c.observe("k", &sample(0, 40.0), &sample(30, 35.0), &records);
-        c.observe("k", &sample(0, 40.0), &sample(30, 40.2), &records);
+        c.observe("k", &sample(0, 40.0), &sample(3, 35.0), &records);
+        c.observe("k", &sample(0, 40.0), &sample(3, 40.2), &records);
         assert!(c.ratios.get("k").map_or(true, |r| r.is_empty()));
+    }
+
+    /// Every wild observation on real data followed a long gap — the app having
+    /// been closed, or the machine asleep. Comparing a reading against one from
+    /// hours earlier sums every token in between against whatever the
+    /// percentage did, across several window rollovers.
+    #[test]
+    fn a_reading_after_a_long_gap_is_not_an_observation() {
+        let mut c = Calibrator::default();
+        let records = vec![record(15, "a", 500_000)];
+
+        // Fourteen hours apart, as after an overnight.
+        let before = UsageSample {
+            date: t(0),
+            percent: 10.0,
+            resets_at: Some(t(300)),
+        };
+        let after = UsageSample {
+            date: t(14 * 60),
+            percent: 13.0,
+            resets_at: Some(t(1200)),
+        };
+        c.observe("k", &before, &after, &records);
+        assert!(
+            c.ratios.get("k").map_or(true, |r| r.is_empty()),
+            "a 14-hour gap must not become an observation"
+        );
+
+        // A normal poll interval still counts.
+        let close = vec![record(1, "b", 30_000)];
+        c.observe("k", &sample(0, 10.0), &sample(3, 13.0), &close);
+        assert_eq!(c.ratios["k"].len(), 1);
+        assert!(c.ratios["k"][0].interval_seconds > 0.0);
+    }
+
+    /// Observations written before intervals were recorded have unknown
+    /// provenance, and the code that wrote them accepted hours-long pairs.
+    #[test]
+    fn observations_without_a_known_interval_are_ignored() {
+        let mut c = Calibrator::default();
+        let legacy: Vec<Ratio> = (0..MIN_RATIOS + 3)
+            .map(|i| Ratio {
+                at: t(i as i64),
+                tokens: 150_000.0,
+                dollars: 20.0,
+                interval_seconds: 0.0, // as deserialised from an older file
+            })
+            .collect();
+        c.ratios.insert("k".into(), legacy);
+        assert!(
+            c.calibration("k").is_none(),
+            "legacy observations must not be trusted just because there are enough of them"
+        );
     }
 
     #[test]
@@ -466,8 +553,8 @@ mod tests {
     /// the window has already moved — clearly labelled as provisional.
     #[test]
     fn bootstrap_fills_in_before_calibration() {
-        let samples = vec![sample(0, 0.0), sample(30, 10.0)];
-        let records = vec![record(15, "a", 10_000)];
+        let samples = vec![sample(0, 0.0), sample(3, 10.0)];
+        let records = vec![record(1, "a", 10_000)];
         // Not enough for the precise path.
         let mut c = Calibrator::default();
         c.observe("k", &samples[0], &samples[1], &records);
@@ -480,8 +567,8 @@ mod tests {
 
     #[test]
     fn bootstrap_needs_the_window_to_have_moved() {
-        let samples = vec![sample(0, 40.0), sample(30, 40.2)];
-        let records = vec![record(15, "a", 10_000)];
+        let samples = vec![sample(0, 40.0), sample(3, 40.2)];
+        let records = vec![record(1, "a", 10_000)];
         assert!(bootstrap(&samples, &records).is_none());
     }
 
